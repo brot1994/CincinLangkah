@@ -47,6 +47,7 @@ class MainActivity : AppCompatActivity() {
     private var date: LocalDate = LocalDate.now()
     private var ring: RingClient? = null
     private val hcCache = HashMap<LocalDate, DoubleArray>()
+    private var refreshJob: kotlinx.coroutines.Job? = null
 
     private val night by lazy {
         (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
@@ -197,7 +198,7 @@ class MainActivity : AppCompatActivity() {
 
     // ---------------- data ----------------
     private suspend fun hcFor(d: LocalDate): DoubleArray? {
-        hcCache[d]?.let { return it }
+        if (d != LocalDate.now()) hcCache[d]?.let { return it }  // hari ini selalu dibaca ulang
         if (!HcSteps.available(this)) return null
         return try {
             if (!HcSteps.granted(this)) null
@@ -209,7 +210,8 @@ class MainActivity : AppCompatActivity() {
         val d = date
         dateLbl.text = if (d == LocalDate.now()) "Hari ini"
         else d.format(DateTimeFormatter.ofPattern("EEEE, d MMM", Locale("id", "ID")))
-        lifecycleScope.launch {
+        refreshJob?.cancel()
+        refreshJob = lifecycleScope.launch {
             val hc = hcFor(d)
             hcBtn.visibility = if (hc == null && HcSteps.available(this@MainActivity)) View.VISIBLE else View.GONE
             val weekHc = HashMap<LocalDate, DoubleArray>()
