@@ -208,6 +208,7 @@ class MainActivity : AppCompatActivity() {
         return try {
             if (!HcSteps.granted(this)) null
             else HcSteps.hourly(this, d).also { hcCache[d] = it }
+        } catch (e: kotlinx.coroutines.CancellationException) { throw e
         } catch (e: Exception) { AppLog.d("Health Connect error: ${e.message}"); null }
     }
 

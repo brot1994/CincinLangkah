@@ -201,7 +201,7 @@ class RingClient(private val ctx: Context, private val onFinished: (ok: Boolean,
         send(Ycbt.frame(Ycbt.G_APPCTRL, 0x09, byteArrayOf(0x01, 0x00, 0x02)), "aktifkan kiriman langkah live")
         pump()
         main.postDelayed({
-            queue.clear(); queue.addAll(Ycbt.History.values().toList())
+            queue.clear(); queue.addAll(Ycbt.History.values().filter { it != Ycbt.History.SPO2 }) // R11M tidak menjawab query SpO2 khusus
             advance()
         }, 800)
     }
@@ -261,6 +261,11 @@ class RingClient(private val ctx: Context, private val onFinished: (ok: Boolean,
             }
             Ycbt.G_GET -> if (cmd == 0x00 && payload.size >= 4 && !Ycbt.isError(payload)) {
                 AppLog.d("Info perangkat (mentah): ${Ycbt.hex(payload)}")
+                val bat = Ycbt.u8(payload, 5)
+                if (bat in 1..100) {
+                    prefs.edit().putInt("baterai", bat).putLong("baterai_ts", System.currentTimeMillis()).apply()
+                    AppLog.d("🔋 Baterai cincin: $bat%")
+                }
             }
             Ycbt.G_REAL -> when (cmd) {
                 0x00 -> if (payload.size >= 2) {

@@ -16,7 +16,6 @@ import java.time.ZoneId
  */
 object HcSteps {
     val PERMS = setOf(HealthPermission.getReadPermission(StepsRecord::class))
-    private const val SAMSUNG = "com.sec.android.app.shealth"
     private val lastLogged = HashMap<LocalDate, String>()
 
     fun available(ctx: Context) =
@@ -33,13 +32,16 @@ object HcSteps {
         val hs = LongArray(25) { h -> start.plusHours(h.toLong()).toInstant().toEpochMilli() }
 
         val perSrc = HashMap<String, DoubleArray>()
+        val durSum = HashMap<String, Long>(); val durN = HashMap<String, Int>()
         var token: String? = null
         do {
             val r = client.readRecords(ReadRecordsRequest(StepsRecord::class, TimeRangeFilter.between(from, to), pageToken = token))
             for (rec in r.records) {
-                val arr = perSrc.getOrPut(rec.metadata.dataOrigin.packageName) { DoubleArray(24) }
+                val src = rec.metadata.dataOrigin.packageName
+                val arr = perSrc.getOrPut(src) { DoubleArray(24) }
                 val s = rec.startTime.toEpochMilli()
                 val e = maxOf(rec.endTime.toEpochMilli(), s + 1)
+                durSum[src] = (durSum[src] ?: 0L) + (e - s); durN[src] = (durN[src] ?: 0) + 1
                 val len = (e - s).toDouble()
                 for (h in 0 until 24) {
                     val ov = minOf(e, hs[h + 1]) - maxOf(s, hs[h])
@@ -49,12 +51,18 @@ object HcSteps {
             token = r.pageToken
         } while (!token.isNullOrEmpty())
 
-        val pick = perSrc[SAMSUNG]?.takeIf { it.sum() > 0 }?.let { SAMSUNG }
-            ?: perSrc.maxByOrNull { it.value.sum() }?.key
+        // Pilih sumber yang catatannya rinci (rata-rata ≤ 1 jam); Samsung Health kadang menulis
+        // satu catatan sepanjang hari sehingga tidak bisa dipakai untuk grafik per jam.
+        fun avgMin(k: String) = (durSum[k] ?: 0L) / maxOf(1, durN[k] ?: 1) / 60_000L
+        val fine = perSrc.filter { it.value.sum() > 0 && avgMin(it.key) <= 60 }
+        val pick = (if (fine.isNotEmpty()) fine else perSrc.filter { it.value.sum() > 0 })
+            .entries.sortedWith(compareBy<Map.Entry<String, DoubleArray>> { avgMin(it.key) }
+                .thenByDescending { it.value.sum() })
+            .firstOrNull()?.key
         val out = pick?.let { perSrc[it] } ?: DoubleArray(24)
 
         val msg = "Health Connect $date: dipakai ${pick ?: "-"} = ${out.sum().toLong()} | semua sumber: " +
-            perSrc.entries.joinToString { "${it.key.substringAfterLast('.')}=${it.value.sum().toLong()}" }
+            perSrc.entries.joinToString { "${it.key.substringAfterLast('.')}=${it.value.sum().toLong()} (±${avgMin(it.key)} mnt/catatan)" }
         if (lastLogged[date] != msg && out.sum() > 0) { lastLogged[date] = msg; AppLog.d(msg) }
         return out
     }

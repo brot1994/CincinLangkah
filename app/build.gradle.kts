@@ -11,8 +11,8 @@ android {
         applicationId = "id.bram.cincinlangkah"
         minSdk = 28
         targetSdk = 34
-        versionCode = 4
-        versionName = "0.3"
+        versionCode = 5
+        versionName = "0.3.1"
     }
 
     signingConfigs {
