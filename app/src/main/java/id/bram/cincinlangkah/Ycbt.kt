@@ -33,10 +33,15 @@ object Ycbt {
     const val HEALTH_TERMINAL = 0x80
 
     /** Jenis riwayat yang kita minta: kunci query -> kunci data, panjang record. */
-    enum class History(val query: Int, val data: Int, val stride: Int, val label: String) {
-        SPORT(0x02, 0x11, 14, "aktivitas (langkah per 30 menit)"),
-        ALL(0x09, 0x18, 20, "gabungan (penghitung langkah kumulatif)"),
+    enum class History(val query: Int, val data: Int, val delete: Int, val label: String) {
+        SPORT(0x02, 0x11, 0x40, "aktivitas (langkah per 30 menit)"),
+        SLEEP(0x04, 0x13, 0x41, "tidur"),
+        HEART(0x06, 0x15, 0x42, "detak jantung"),
+        ALL(0x09, 0x18, 0x44, "gabungan (penghitung langkah kumulatif)"),
     }
+
+    /** 05 4x {02}: hapus riwayat jenis itu dari cincin (seperti yang dilakukan SmartHealth setelah sinkron). */
+    fun deleteFrame(h: History) = frame(G_HEALTH, h.delete, byteArrayOf(2))
 
     fun crc16(b: ByteArray, len: Int = b.size): Int {
         var crc = 0xFFFF
@@ -91,6 +96,41 @@ object Ycbt {
 
     data class SportRec(val startMs: Long, val endMs: Long, val steps: Int, val distM: Int, val kcal: Int)
     data class AllRec(val tsMs: Long, val steps: Int, val hr: Int, val spo2: Int)
+    data class HeartRec(val tsMs: Long, val hr: Int)
+    /** stage: 1 nyenyak, 2 ringan, 3 REM, 4 terjaga, 5 tidur siang */
+    data class SleepSeg(val startMs: Long, val durSec: Int, val stage: Int)
+
+    fun parseHeart(buf: ByteArray): List<HeartRec> {
+        val out = ArrayList<HeartRec>()
+        var i = 0
+        while (i + 6 <= buf.size) {
+            val t = u32(buf, i); val hr = u8(buf, i + 5)
+            if (t > 0 && hr in 25..230) out += HeartRec(ringTimeToMillis(t), hr)
+            i += 6
+        }
+        return out
+    }
+
+    /** Sesi: header 20 byte (panjang sesi @2), lalu segmen 8 byte [tag][start u32][durasi u24]. */
+    fun parseSleep(buf: ByteArray): List<SleepSeg> {
+        val out = ArrayList<SleepSeg>()
+        var p = 0
+        while (p + 20 <= buf.size) {
+            val len = u16(buf, p + 2)
+            if (len < 20) break
+            val end = minOf(p + len, buf.size)
+            var q = p + 20
+            while (q + 8 <= end) {
+                val stage = u8(buf, q) and 0x0F
+                val st = u32(buf, q + 1)
+                val dur = u8(buf, q + 5) or (u8(buf, q + 6) shl 8) or (u8(buf, q + 7) shl 16)
+                if (st > 0 && dur > 0 && stage in 1..5) out += SleepSeg(ringTimeToMillis(st), dur, stage)
+                q += 8
+            }
+            p += len
+        }
+        return out
+    }
 
     fun parseSport(buf: ByteArray): List<SportRec> {
         val out = ArrayList<SportRec>()

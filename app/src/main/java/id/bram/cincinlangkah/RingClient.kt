@@ -61,6 +61,12 @@ class RingClient(private val ctx: Context, private val onFinished: (ok: Boolean,
     private var gotSport = 0
     private var gotAll = 0
     private var liveSteps: Int? = null
+    private var gotSleep = 0
+    private var gotHeart = 0
+    private val savedTypes = LinkedHashSet<Ycbt.History>()
+    private val prefs = ctx.getSharedPreferences("cfg", Context.MODE_PRIVATE)
+    private var deleting = false
+    private val sportStarts = ArrayList<Long>()
 
     private val watchdog = Runnable {
         AppLog.d("⏱ Tidak ada data ${current?.name} selama 10 dtk → lanjut")
@@ -195,7 +201,7 @@ class RingClient(private val ctx: Context, private val onFinished: (ok: Boolean,
         send(Ycbt.frame(Ycbt.G_APPCTRL, 0x09, byteArrayOf(0x01, 0x00, 0x02)), "aktifkan kiriman langkah live")
         pump()
         main.postDelayed({
-            queue.clear(); queue.addAll(listOf(Ycbt.History.SPORT, Ycbt.History.ALL))
+            queue.clear(); queue.addAll(Ycbt.History.values().toList())
             advance()
         }, 800)
     }
@@ -259,9 +265,14 @@ class RingClient(private val ctx: Context, private val onFinished: (ok: Boolean,
             Ycbt.G_REAL -> when (cmd) {
                 0x00 -> if (payload.size >= 2) {
                     liveSteps = Ycbt.u16(payload, 0)
+                    prefs.edit().putInt("live_steps", liveSteps!!).putLong("live_ts", System.currentTimeMillis()).apply()
                     AppLog.d("👣 Langkah hari ini menurut cincin (live): $liveSteps")
                 }
-                0x15 -> if (payload.size >= 2) AppLog.d("🔋 Baterai cincin: ${Ycbt.u8(payload, 1)}%")
+                0x15 -> if (payload.size >= 2) {
+                    val b = Ycbt.u8(payload, 1)
+                    prefs.edit().putInt("baterai", b).putLong("baterai_ts", System.currentTimeMillis()).apply()
+                    AppLog.d("🔋 Baterai cincin: $b%")
+                }
             }
             Ycbt.G_HEALTH -> onHealth(cmd, payload)
         }
@@ -277,6 +288,13 @@ class RingClient(private val ctx: Context, private val onFinished: (ok: Boolean,
         val next = queue.removeFirstOrNull()
         current = next
         if (next == null) {
+            // Data sudah aman di HP → bersihkan di cincin supaya memori cincin tidak penuh
+            // dan sinkron berikutnya tidak mengirim ulang data yang sama.
+            if (!deleting && savedTypes.isNotEmpty() && prefs.getBoolean("hapus_di_cincin", true)) {
+                deleting = true
+                for (h in savedTypes) send(Ycbt.deleteFrame(h), "hapus riwayat ${h.name} di cincin (sudah tersimpan)")
+                if (Ycbt.History.SPORT in savedTypes) db.markSportCleared(sportStarts)
+            }
             AppLog.d("Semua riwayat selesai. Menunggu 2 dtk lalu memutus…")
             main.postDelayed({ finish(true, summary()) }, 2000)
             return
@@ -343,7 +361,7 @@ class RingClient(private val ctx: Context, private val onFinished: (ok: Boolean,
 
         val key = "${h.name}:${buffer.size}:$crcExp"
         val dup = !seenBlocks.add(key)
-        if (!dup) save(h, buffer)
+        if (!dup) { save(h, buffer); savedTypes += h }
         else AppLog.d("Blok ${h.name} sama dengan sebelumnya (cincin mengulang) → lanjut")
 
         blocksThisType++
@@ -360,9 +378,22 @@ class RingClient(private val ctx: Context, private val onFinished: (ok: Boolean,
                 val recs = Ycbt.parseSport(buf)
                 gotSport += recs.size
                 newSport += db.putSport(recs)
+                sportStarts += recs.map { it.startMs }
                 val tot = recs.sumOf { it.steps }
                 AppLog.d("✔ ${recs.size} record aktivitas (total $tot langkah). Contoh: " +
                     recs.take(3).joinToString { "${fmt(it.startMs)}–${fmt(it.endMs)}=${it.steps}" })
+            }
+            Ycbt.History.SLEEP -> {
+                val recs = Ycbt.parseSleep(buf)
+                gotSleep += recs.size
+                db.putSleep(recs)
+                AppLog.d("✔ ${recs.size} segmen tidur (${recs.sumOf { it.durSec } / 60} menit)")
+            }
+            Ycbt.History.HEART -> {
+                val recs = Ycbt.parseHeart(buf)
+                gotHeart += recs.size
+                db.putHeart(recs)
+                AppLog.d("✔ ${recs.size} data detak jantung")
             }
             Ycbt.History.ALL -> {
                 val recs = Ycbt.parseAll(buf)
@@ -378,7 +409,7 @@ class RingClient(private val ctx: Context, private val onFinished: (ok: Boolean,
 
     private fun summary(): String {
         val live = liveSteps?.let { " Langkah hari ini di cincin: $it." } ?: ""
-        return "Aktivitas: $gotSport record ($newSport baru). Gabungan: $gotAll record ($newAll baru).$live"
+        return "Langkah: $gotSport blok, tidur: $gotSleep segmen, HR: $gotHeart, gabungan: $gotAll.$live"
     }
 
     // ---------------- selesai ----------------
@@ -396,6 +427,7 @@ class RingClient(private val ctx: Context, private val onFinished: (ok: Boolean,
         try { gatt?.disconnect(); gatt?.close() } catch (_: Exception) {}
         gatt = null
         AppLog.d("Selesai: $summary")
+        if (ok) prefs.edit().putLong("last_sync", System.currentTimeMillis()).apply()
         onFinished(ok, summary)
     }
 }

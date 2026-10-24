@@ -5,7 +5,7 @@ import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 
-class Db private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "data.db", null, 1) {
+class Db private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "data.db", null, 2) {
 
     companion object {
         @Volatile private var inst: Db? = null
@@ -15,12 +15,69 @@ class Db private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "data.db", nu
     }
 
     override fun onCreate(db: SQLiteDatabase) {
-        db.execSQL("CREATE TABLE ring_sport(start INTEGER PRIMARY KEY, end_ INTEGER, steps INTEGER, dist INTEGER, kcal INTEGER)")
+        db.execSQL("CREATE TABLE ring_sport(start INTEGER PRIMARY KEY, end_ INTEGER, steps INTEGER, dist INTEGER, kcal INTEGER, cleared INTEGER DEFAULT 0)")
         db.execSQL("CREATE TABLE ring_all(ts INTEGER PRIMARY KEY, steps INTEGER, hr INTEGER, spo2 INTEGER)")
         db.execSQL("CREATE TABLE phone(ts INTEGER PRIMARY KEY, counter REAL, boot INTEGER)")
+        createV2(db)
     }
 
-    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {}
+    private fun createV2(db: SQLiteDatabase) {
+        db.execSQL("CREATE TABLE IF NOT EXISTS heart(ts INTEGER PRIMARY KEY, hr INTEGER)")
+        db.execSQL("CREATE TABLE IF NOT EXISTS sleep_seg(start INTEGER PRIMARY KEY, dur INTEGER, stage INTEGER)")
+    }
+
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        if (oldVersion < 2) {
+            createV2(db)
+            db.execSQL("ALTER TABLE ring_sport ADD COLUMN cleared INTEGER DEFAULT 0")
+        }
+    }
+
+    fun putHeart(list: List<Ycbt.HeartRec>): Int {
+        var fresh = 0
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            for (r in list) {
+                val cv = ContentValues().apply { put("ts", r.tsMs); put("hr", r.hr) }
+                if (db.insertWithOnConflict("heart", null, cv, SQLiteDatabase.CONFLICT_IGNORE) != -1L) fresh++
+            }
+            db.setTransactionSuccessful()
+        } finally { db.endTransaction() }
+        return fresh
+    }
+
+    fun putSleep(list: List<Ycbt.SleepSeg>): Int {
+        var fresh = 0
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            for (r in list) {
+                val cv = ContentValues().apply { put("start", r.startMs); put("dur", r.durSec); put("stage", r.stage) }
+                if (db.insertWithOnConflict("sleep_seg", null, cv, SQLiteDatabase.CONFLICT_REPLACE) != -1L) fresh++
+            }
+            db.setTransactionSuccessful()
+        } finally { db.endTransaction() }
+        return fresh
+    }
+
+    fun heart(from: Long, to: Long): List<Ycbt.HeartRec> {
+        val out = ArrayList<Ycbt.HeartRec>()
+        readableDatabase.rawQuery("SELECT ts,hr FROM heart WHERE ts>=? AND ts<? ORDER BY ts",
+            arrayOf(from.toString(), to.toString())).use { c ->
+            while (c.moveToNext()) out += Ycbt.HeartRec(c.getLong(0), c.getInt(1))
+        }
+        return out
+    }
+
+    fun sleep(from: Long, to: Long): List<Ycbt.SleepSeg> {
+        val out = ArrayList<Ycbt.SleepSeg>()
+        readableDatabase.rawQuery("SELECT start,dur,stage FROM sleep_seg WHERE start>=? AND start<? ORDER BY start",
+            arrayOf(from.toString(), to.toString())).use { c ->
+            while (c.moveToNext()) out += Ycbt.SleepSeg(c.getLong(0), c.getInt(1), c.getInt(2))
+        }
+        return out
+    }
 
     /** @return jumlah record yang benar-benar baru */
     fun putSport(list: List<Ycbt.SportRec>): Int {
@@ -29,12 +86,21 @@ class Db private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "data.db", nu
         db.beginTransaction()
         try {
             for (r in list) {
-                val cv = ContentValues().apply {
-                    put("start", r.startMs); put("end_", r.endMs); put("steps", r.steps)
-                    put("dist", r.distM); put("kcal", r.kcal)
+                var steps = r.steps; var dist = r.distM; var kcal = r.kcal
+                db.rawQuery("SELECT steps,dist,kcal,cleared FROM ring_sport WHERE start=?", arrayOf(r.startMs.toString())).use { c ->
+                    if (c.moveToNext()) {
+                        if (c.getInt(3) == 1) {
+                            // Bucket ini sudah pernah dibaca lalu dihapus dari cincin saat masih berjalan:
+                            // yang datang sekarang adalah sisanya → dijumlahkan.
+                            steps += c.getInt(0); dist += c.getInt(1); kcal += c.getInt(2)
+                        }
+                    } else fresh++
                 }
-                if (db.insertWithOnConflict("ring_sport", null, cv, SQLiteDatabase.CONFLICT_IGNORE) != -1L) fresh++
-                else db.update("ring_sport", cv, "start=?", arrayOf(r.startMs.toString()))
+                val cv = ContentValues().apply {
+                    put("start", r.startMs); put("end_", r.endMs); put("steps", steps)
+                    put("dist", dist); put("kcal", kcal); put("cleared", 0)
+                }
+                db.insertWithOnConflict("ring_sport", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
             }
             db.setTransactionSuccessful()
         } finally { db.endTransaction() }
@@ -56,6 +122,12 @@ class Db private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "data.db", nu
             db.setTransactionSuccessful()
         } finally { db.endTransaction() }
         return fresh
+    }
+
+    /** Tandai bucket yang baru saja dihapus dari cincin. */
+    fun markSportCleared(starts: Collection<Long>) {
+        val db = writableDatabase
+        for (s in starts) db.execSQL("UPDATE ring_sport SET cleared=1 WHERE start=?", arrayOf(s))
     }
 
     fun putPhone(ts: Long, counter: Float, boot: Long) {
