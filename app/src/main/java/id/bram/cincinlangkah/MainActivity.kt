@@ -72,6 +72,11 @@ class MainActivity : AppCompatActivity() {
     private lateinit var heartBig: TextView
     private lateinit var heartView: HeartView
     private lateinit var week: WeekView
+    private class Tile(val value: TextView, val sub: TextView, val spark: SparkView)
+    private lateinit var tSpo2: Tile
+    private lateinit var tBp: Tile
+    private lateinit var tHrv: Tile
+    private lateinit var tResp: Tile
     private lateinit var table: LinearLayout
     private lateinit var tableBox: LinearLayout
     private lateinit var settingsBox: LinearLayout
@@ -254,6 +259,25 @@ class MainActivity : AppCompatActivity() {
 
         week.days = wk; week.goal = goal; week.selected = day.date; week.invalidate()
 
+        val ds = Report.dayStart(day.date)
+        fun fill(t: Tile, list: List<Ycbt.Vital>, unit: String, two: Boolean = false) {
+            if (list.isEmpty()) { t.value.text = "–"; t.sub.text = "belum ada data"; t.spark.a = emptyList(); t.spark.b = emptyList() }
+            else {
+                val last = list.last()
+                t.value.text = (if (two) "${last.v1}/${last.v2}" else "${last.v1}") + unit
+                val tf = SimpleDateFormat("HH:mm", Locale.US).format(Date(last.tsMs))
+                t.sub.text = if (two) "$tf · ${list.size}× hari ini"
+                else "$tf · ${list.minOf { it.v1 }}–${list.maxOf { it.v1 }}"
+                t.spark.a = list.map { it.tsMs to it.v1 }
+                t.spark.b = if (two) list.map { it.tsMs to it.v2 } else emptyList()
+            }
+            t.spark.dayStart = ds; t.spark.invalidate()
+        }
+        fill(tSpo2, day.spo2, "%")
+        fill(tBp, day.bp, "", two = true)
+        fill(tHrv, day.hrv, " ms")
+        fill(tResp, day.resp, "/mnt")
+
         renderTable(day)
     }
 
@@ -363,6 +387,19 @@ class MainActivity : AppCompatActivity() {
         heartView = HeartView(this, pal)
         c4.addView(heartView)
 
+        // Tanda vital
+        val cv = card(root)
+        cv.addView(title("Tanda vital"))
+        val r1 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val r2 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, px(12), 0, 0) }
+        tSpo2 = tile(r1, "SpO₂", pal.spo2)
+        tBp = tile(r1, "Tekanan darah", pal.bp)
+        tHrv = tile(r2, "HRV", pal.hrv)
+        tResp = tile(r2, "Laju napas", pal.resp)
+        cv.addView(r1); cv.addView(r2)
+        cv.addView(note("Diukur otomatis oleh cincin (sensor cahaya). Tekanan darah & SpO₂ dari cincin adalah " +
+            "perkiraan, bukan pengganti alat medis."))
+
         // Mingguan
         val c5 = card(root)
         c5.addView(title("7 hari terakhir"))
@@ -434,6 +471,20 @@ class MainActivity : AppCompatActivity() {
         }
         parent.addView(c, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { bottomMargin = px(12) })
         return c
+    }
+
+    private fun tile(row: LinearLayout, label: String, color: Int): Tile {
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f).apply { marginEnd = px(10) }
+        }
+        box.addView(TextView(this).apply { text = label; textSize = 12f; setTextColor(color); typeface = Typeface.DEFAULT_BOLD })
+        val v = TextView(this).apply { textSize = 22f; setTextColor(pal.fg); typeface = Typeface.DEFAULT_BOLD }
+        val sub = TextView(this).apply { textSize = 11f; setTextColor(pal.muted) }
+        val sp = SparkView(this, pal).apply { this.color = color }
+        box.addView(v); box.addView(sub); box.addView(sp)
+        row.addView(box)
+        return Tile(v, sub, sp)
     }
 
     private fun title(t: String) = TextView(this).apply {

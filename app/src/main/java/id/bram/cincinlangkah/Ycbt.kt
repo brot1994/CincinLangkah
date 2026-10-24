@@ -37,6 +37,8 @@ object Ycbt {
         SPORT(0x02, 0x11, 0x40, "aktivitas (langkah per 30 menit)"),
         SLEEP(0x04, 0x13, 0x41, "tidur"),
         HEART(0x06, 0x15, 0x42, "detak jantung"),
+        BLOOD(0x08, 0x17, 0x43, "tekanan darah"),
+        SPO2(0x1A, 0x22, 0x45, "SpO2"),
         ALL(0x09, 0x18, 0x44, "gabungan (penghitung langkah kumulatif)"),
     }
 
@@ -97,6 +99,52 @@ object Ycbt {
     data class SportRec(val startMs: Long, val endMs: Long, val steps: Int, val distM: Int, val kcal: Int)
     data class AllRec(val tsMs: Long, val steps: Int, val hr: Int, val spo2: Int)
     data class HeartRec(val tsMs: Long, val hr: Int)
+    /** kind: bp (v1=sistolik, v2=diastolik), spo2, hrv, resp */
+    data class Vital(val tsMs: Long, val kind: String, val v1: Int, val v2: Int = 0)
+
+    /** Tanda vital dari record gabungan (20 byte). */
+    fun vitalsFromAll(buf: ByteArray): List<Vital> {
+        val out = ArrayList<Vital>()
+        var i = 0
+        while (i + 20 <= buf.size) {
+            val t = u32(buf, i)
+            if (t > 0) {
+                val ts = ringTimeToMillis(t)
+                val sys = u8(buf, i + 7); val dia = u8(buf, i + 8)
+                val spo2 = u8(buf, i + 9); val resp = u8(buf, i + 10); val hrv = u8(buf, i + 11)
+                if (sys in 70..230 && dia in 35..150 && sys > dia) out += Vital(ts, "bp", sys, dia)
+                if (spo2 in 70..100) out += Vital(ts, "spo2", spo2)
+                if (resp in 5..45) out += Vital(ts, "resp", resp)
+                if (hrv in 5..250) out += Vital(ts, "hrv", hrv)
+            }
+            i += 20
+        }
+        return out
+    }
+
+    /** Riwayat tekanan darah: [ts][dipompa][sistolik][diastolik][hr] */
+    fun parseBlood(buf: ByteArray): List<Vital> {
+        val out = ArrayList<Vital>()
+        var i = 0
+        while (i + 8 <= buf.size) {
+            val t = u32(buf, i); val sys = u8(buf, i + 5); val dia = u8(buf, i + 6)
+            if (t > 0 && sys in 70..230 && dia in 35..150 && sys > dia) out += Vital(ringTimeToMillis(t), "bp", sys, dia)
+            i += 8
+        }
+        return out
+    }
+
+    /** Riwayat SpO2: [ts][jenis][nilai] */
+    fun parseSpo2(buf: ByteArray): List<Vital> {
+        val out = ArrayList<Vital>()
+        var i = 0
+        while (i + 6 <= buf.size) {
+            val t = u32(buf, i); val v = u8(buf, i + 5)
+            if (t > 0 && v in 70..100) out += Vital(ringTimeToMillis(t), "spo2", v)
+            i += 6
+        }
+        return out
+    }
     /** stage: 1 nyenyak, 2 ringan, 3 REM, 4 terjaga, 5 tidur siang */
     data class SleepSeg(val startMs: Long, val durSec: Int, val stage: Int)
 

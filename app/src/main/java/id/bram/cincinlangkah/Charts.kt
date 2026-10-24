@@ -33,6 +33,10 @@ class Pal(val night: Boolean) {
     val light = if (night) Color.parseColor("#A99BFF") else Color.parseColor("#9C8CF5")
     val rem = if (night) Color.parseColor("#5CC8E8") else Color.parseColor("#2BA9D1")
     val awake = if (night) Color.parseColor("#F2B84B") else Color.parseColor("#E5A11C")
+    val spo2 = if (night) Color.parseColor("#5CC8E8") else Color.parseColor("#1A8FB8")
+    val bp = if (night) Color.parseColor("#FF9A6B") else Color.parseColor("#D9622B")
+    val hrv = if (night) Color.parseColor("#A99BFF") else Color.parseColor("#6C5BD9")
+    val resp = if (night) Color.parseColor("#7CD992") else Color.parseColor("#2E9E4F")
     fun stage(s: Int) = when (s) { 1 -> deep; 2 -> light; 3 -> rem; else -> awake }
 }
 
@@ -167,6 +171,34 @@ class HeartView(ctx: Context, pal: Pal) : BaseChart(ctx, pal) {
         line.color = pal.heart; line.strokeWidth = px(2f); line.strokeJoin = Paint.Join.ROUND
         c.drawPath(p, line)
         for (h in listOf(0, 6, 12, 18)) c.drawText("%02d".format(h), left + (width - left) * h / 24f, height - px(4f), text)
+    }
+}
+
+/** Grafik mini untuk tanda vital (satu atau dua garis). */
+class SparkView(ctx: Context, pal: Pal) : BaseChart(ctx, pal) {
+    override val hDp = 44f
+    var dayStart = 0L
+    var a: List<Pair<Long, Int>> = emptyList()
+    var b: List<Pair<Long, Int>> = emptyList()
+    var color = pal.ring
+    override fun onDraw(c: Canvas) {
+        val all = a + b
+        if (all.isEmpty()) return
+        val lo = all.minOf { it.second } - 3; val hi = all.maxOf { it.second } + 3
+        val top = px(4f); val bottom = height - px(4f)
+        fun xy(p: Pair<Long, Int>) = Pair(
+            width * ((p.first - dayStart) / 86_400_000f).coerceIn(0f, 1f),
+            bottom - (bottom - top) * (p.second - lo) / (hi - lo).toFloat())
+        for ((series, alpha) in listOf(a to 255, b to 130)) {
+            if (series.isEmpty()) continue
+            line.color = color; line.alpha = alpha; line.strokeWidth = px(2f)
+            fill.color = color; fill.alpha = alpha
+            val path = Path()
+            series.forEachIndexed { i, p -> val (x, y) = xy(p); if (i == 0) path.moveTo(x, y) else path.lineTo(x, y) }
+            if (series.size > 1) c.drawPath(path, line)
+            for (p in series) { val (x, y) = xy(p); c.drawCircle(x, y, px(2.5f), fill) }
+        }
+        line.alpha = 255; fill.alpha = 255
     }
 }
 

@@ -22,6 +22,10 @@ object Report {
         val kcal: Double,
         val sleep: List<Ycbt.SleepSeg>,
         val heart: List<Ycbt.HeartRec>,
+        val bp: List<Ycbt.Vital>,
+        val spo2: List<Ycbt.Vital>,
+        val hrv: List<Ycbt.Vital>,
+        val resp: List<Ycbt.Vital>,
     ) {
         val total get() = fused.sum()
         fun sleepMin(stage: Int) = sleep.filter { it.stage == stage }.sumOf { it.durSec } / 60
@@ -97,7 +101,9 @@ object Report {
         if (heart.isEmpty()) heart = allRecs.filter { it.hr in 25..230 }.map { Ycbt.HeartRec(it.tsMs, it.hr) }
 
         return Day(date, sport, cum, phone, covered, hc, ring, phoneBest, fused, fromPhone,
-            total * mPerStep / 1000.0, total * kcalPerStep, sleep, heart)
+            total * mPerStep / 1000.0, total * kcalPerStep, sleep, heart,
+            db.vitals("bp", from, to), db.vitals("spo2", from, to),
+            db.vitals("hrv", from, to), db.vitals("resp", from, to))
     }
 
     /** Total langkah gabungan untuk beberapa hari (untuk grafik mingguan). */

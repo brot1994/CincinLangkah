@@ -395,7 +395,18 @@ class RingClient(private val ctx: Context, private val onFinished: (ok: Boolean,
                 db.putHeart(recs)
                 AppLog.d("✔ ${recs.size} data detak jantung")
             }
+            Ycbt.History.BLOOD -> {
+                val v = Ycbt.parseBlood(buf); db.putVitals(v)
+                AppLog.d("✔ ${v.size} data tekanan darah")
+            }
+            Ycbt.History.SPO2 -> {
+                val v = Ycbt.parseSpo2(buf); db.putVitals(v)
+                AppLog.d("✔ ${v.size} data SpO2")
+            }
             Ycbt.History.ALL -> {
+                val vit = Ycbt.vitalsFromAll(buf); db.putVitals(vit)
+                if (vit.isNotEmpty()) AppLog.d("✔ tanda vital dari data gabungan: " +
+                    vit.takeLast(4).joinToString { "${it.kind}=${it.v1}" + if (it.v2 > 0) "/${it.v2}" else "" })
                 val recs = Ycbt.parseAll(buf)
                 gotAll += recs.size
                 newAll += db.putAll(recs)

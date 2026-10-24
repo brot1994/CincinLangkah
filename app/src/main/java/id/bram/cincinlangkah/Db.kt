@@ -5,7 +5,7 @@ import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 
-class Db private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "data.db", null, 2) {
+class Db private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "data.db", null, 3) {
 
     companion object {
         @Volatile private var inst: Db? = null
@@ -24,6 +24,34 @@ class Db private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "data.db", nu
     private fun createV2(db: SQLiteDatabase) {
         db.execSQL("CREATE TABLE IF NOT EXISTS heart(ts INTEGER PRIMARY KEY, hr INTEGER)")
         db.execSQL("CREATE TABLE IF NOT EXISTS sleep_seg(start INTEGER PRIMARY KEY, dur INTEGER, stage INTEGER)")
+        createV3(db)
+    }
+
+    private fun createV3(db: SQLiteDatabase) {
+        db.execSQL("CREATE TABLE IF NOT EXISTS vital(ts INTEGER, kind TEXT, v1 INTEGER, v2 INTEGER, PRIMARY KEY(ts, kind))")
+    }
+
+    fun putVitals(list: List<Ycbt.Vital>): Int {
+        var n = 0
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            for (v in list) {
+                val cv = ContentValues().apply { put("ts", v.tsMs); put("kind", v.kind); put("v1", v.v1); put("v2", v.v2) }
+                if (db.insertWithOnConflict("vital", null, cv, SQLiteDatabase.CONFLICT_REPLACE) != -1L) n++
+            }
+            db.setTransactionSuccessful()
+        } finally { db.endTransaction() }
+        return n
+    }
+
+    fun vitals(kind: String, from: Long, to: Long): List<Ycbt.Vital> {
+        val out = ArrayList<Ycbt.Vital>()
+        readableDatabase.rawQuery("SELECT ts,v1,v2 FROM vital WHERE kind=? AND ts>=? AND ts<? ORDER BY ts",
+            arrayOf(kind, from.toString(), to.toString())).use { c ->
+            while (c.moveToNext()) out += Ycbt.Vital(c.getLong(0), kind, c.getInt(1), c.getInt(2))
+        }
+        return out
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
@@ -31,6 +59,7 @@ class Db private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "data.db", nu
             createV2(db)
             db.execSQL("ALTER TABLE ring_sport ADD COLUMN cleared INTEGER DEFAULT 0")
         }
+        if (oldVersion < 3) createV3(db)
     }
 
     fun putHeart(list: List<Ycbt.HeartRec>): Int {
