@@ -72,6 +72,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var heartBig: TextView
     private lateinit var heartView: HeartView
     private lateinit var week: WeekView
+    private lateinit var exBox: LinearLayout
     private class Tile(val value: TextView, val sub: TextView, val spark: SparkView)
     private lateinit var tSpo2: Tile
     private lateinit var tBp: Tile
@@ -115,6 +116,8 @@ class MainActivity : AppCompatActivity() {
         AppLog.recentLines().takeLast(60).forEach { appendLog(it) }
 
         val need = ArrayList<String>()
+        if (Build.VERSION.SDK_INT >= 33 && !granted(Manifest.permission.POST_NOTIFICATIONS))
+            need += Manifest.permission.POST_NOTIFICATIONS
         if (!hasActivityPerm()) need += Manifest.permission.ACTIVITY_RECOGNITION
         if (!hasBtPerms()) need += btPermList()
         if (need.isNotEmpty()) basePerms.launch(need.toTypedArray())
@@ -164,7 +167,7 @@ class MainActivity : AppCompatActivity() {
     private fun doHc() {
         if (!HcSteps.available(this)) { toast("Health Connect tidak tersedia di HP ini"); return }
         lifecycleScope.launch {
-            if (HcSteps.granted(this@MainActivity)) { hcCache.clear(); refresh() } else hcPerms.launch(HcSteps.PERMS)
+            if (HcSteps.granted(this@MainActivity)) { hcCache.clear(); refresh() } else hcPerms.launch(HcSteps.REQUEST)
         }
     }
 
@@ -220,8 +223,15 @@ class MainActivity : AppCompatActivity() {
         refreshJob = lifecycleScope.launch {
             val hc = hcFor(d)
             hcBtn.visibility = if (hc == null && HcSteps.available(this@MainActivity)) View.VISIBLE else View.GONE
+            // Izin baca di latar (untuk deteksi olahraga saat aplikasi tertutup), minta sekali
+            if (hc != null && !prefs.getBoolean("hc_bg_asked", false)) {
+                prefs.edit().putBoolean("hc_bg_asked", true).apply()
+                try { if (!HcSteps.grantedBackground(this@MainActivity)) hcPerms.launch(HcSteps.REQUEST) } catch (_: Exception) {}
+            }
             val weekHc = HashMap<LocalDate, DoubleArray>()
             for (i in 0..6) { val wd = d.minusDays(i.toLong()); hcFor(wd)?.let { weekHc[wd] = it } }
+            if (d == LocalDate.now()) try { Exercise.detect(this@MainActivity) }
+                catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) {}
             val (day, wk) = withContext(Dispatchers.IO) {
                 Report.build(this@MainActivity, d, hc) to Report.week(this@MainActivity, d, weekHc)
             }
@@ -279,7 +289,58 @@ class MainActivity : AppCompatActivity() {
         fill(tHrv, day.hrv, " ms")
         fill(tResp, day.resp, "/mnt")
 
+        renderExercise(day)
         renderTable(day)
+    }
+
+    private fun renderExercise(day: Report.Day) {
+        exBox.removeAllViews()
+        val from = Report.dayStart(day.date)
+        val list = Db.get(this).exercises(from, from + 86_400_000L)
+        if (list.isEmpty()) {
+            exBox.addView(TextView(this).apply { text = "Belum ada olahraga hari ini"; textSize = 13f; setTextColor(pal.muted) })
+            return
+        }
+        val tf = SimpleDateFormat("HH:mm", Locale.US)
+        val ongoingCut = System.currentTimeMillis() - 4 * 60_000L
+        for (e in list) {
+            val mins = ((e.end - e.start) / 60_000L).toInt()
+            val hr = day.heart.filter { it.tsMs in e.start..e.end }.map { it.hr }
+            val kcal = Exercise.met(e.type) * prefs.getInt("berat", 70) * mins / 60.0
+            val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(0, px(4), 0, px(12)) }
+            box.addView(TextView(this).apply {
+                text = "${Exercise.emoji(e.type)}  ${Exercise.label(e.type)}" + if (e.end > ongoingCut) "  · sedang berlangsung" else ""
+                textSize = 17f; setTextColor(pal.fg); typeface = Typeface.DEFAULT_BOLD
+            })
+            box.addView(TextView(this).apply {
+                text = buildString {
+                    append("${tf.format(Date(e.start))}–${tf.format(Date(e.end))} · $mins menit · ${fmtN(e.steps.toDouble())} langkah")
+                    if (hr.isNotEmpty()) append(" · HR ${hr.average().roundToInt()} rata², maks ${hr.max()}")
+                    append(" · ±${kcal.roundToInt()} kkal")
+                }
+                textSize = 12.5f; setTextColor(pal.muted); setPadding(0, px(2), 0, px(6))
+            })
+            val chips = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            for (t in Exercise.TYPES) {
+                val sel = t == e.type
+                chips.addView(Button(this).apply {
+                    text = "${Exercise.emoji(t)} ${Exercise.label(t)}"; isAllCaps = false; textSize = 13f
+                    setTextColor(if (sel) Color.WHITE else pal.ring)
+                    background = GradientDrawable().apply {
+                        cornerRadius = px(18).toFloat()
+                        if (sel) setColor(pal.ring) else setStroke(px(1), pal.ring)
+                    }
+                    layoutParams = LinearLayout.LayoutParams(0, px(38), 1f).apply { marginEnd = px(6) }
+                    setOnClickListener {
+                        Db.get(this@MainActivity).setExerciseType(e.start, t)
+                        androidx.core.app.NotificationManagerCompat.from(this@MainActivity).cancel((e.start / 60_000L).toInt())
+                        refresh()
+                    }
+                })
+            }
+            box.addView(chips)
+            exBox.addView(box)
+        }
     }
 
     private fun hm(min: Int) = if (min >= 60) "${min / 60}j${min % 60}m" else "${min}m"
@@ -372,6 +433,13 @@ class MainActivity : AppCompatActivity() {
         c2.addView(note("Total di atas = gabungan: tiap jam diambil yang lebih besar, karena masing-masing bisa terlewat " +
             "(HP ditinggal di meja, atau tangan diam saat jalan)."))
 
+        // Olahraga
+        val ce = card(root)
+        ce.addView(title("Olahraga"))
+        exBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        ce.addView(exBox)
+        ce.addView(note("Direkam otomatis setelah ≥5 menit aktif berturut-turut. Ketuk jenisnya kalau tebakan salah."))
+
         // Tidur
         val c3 = card(root)
         c3.addView(title("Tidur"))
@@ -432,6 +500,12 @@ class MainActivity : AppCompatActivity() {
         c7.addView(note("Alamat Bluetooth cincin"))
         addr = edit(prefs.getString("addr", "") ?: "", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS)
         c7.addView(addr)
+        c7.addView(note("Berat badan (kg) — untuk perkiraan kalori olahraga"))
+        val berat = edit(prefs.getInt("berat", 70).toString(), InputType.TYPE_CLASS_NUMBER)
+        berat.setOnFocusChangeListener { _, has ->
+            if (!has) { prefs.edit().putInt("berat", berat.text.toString().toIntOrNull()?.coerceIn(30, 200) ?: 70).apply(); refresh() }
+        }
+        c7.addView(berat)
         c7.addView(note("Target langkah per hari"))
         goalEdit = edit(prefs.getInt("goal", 10_000).toString(), InputType.TYPE_CLASS_NUMBER)
         goalEdit.setOnFocusChangeListener { _, has ->

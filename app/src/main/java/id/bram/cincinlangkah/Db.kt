@@ -5,7 +5,7 @@ import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 
-class Db private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "data.db", null, 3) {
+class Db private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "data.db", null, 4) {
 
     companion object {
         @Volatile private var inst: Db? = null
@@ -27,8 +27,41 @@ class Db private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "data.db", nu
         createV3(db)
     }
 
+    private fun createV4(db: SQLiteDatabase) {
+        db.execSQL("CREATE TABLE IF NOT EXISTS exercise(start INTEGER PRIMARY KEY, end_ INTEGER, type TEXT, auto_type TEXT, " +
+            "steps INTEGER, chosen INTEGER DEFAULT 0, notified INTEGER DEFAULT 0)")
+    }
+
+    data class Exercise(val start: Long, val end: Long, val type: String, val autoType: String,
+                        val steps: Int, val chosen: Boolean, val notified: Boolean)
+
+    fun exercises(from: Long, to: Long): List<Exercise> {
+        val out = ArrayList<Exercise>()
+        readableDatabase.rawQuery("SELECT start,end_,type,auto_type,steps,chosen,notified FROM exercise " +
+            "WHERE end_>=? AND start<? ORDER BY start", arrayOf(from.toString(), to.toString())).use { c ->
+            while (c.moveToNext()) out += Exercise(c.getLong(0), c.getLong(1), c.getString(2), c.getString(3),
+                c.getInt(4), c.getInt(5) == 1, c.getInt(6) == 1)
+        }
+        return out
+    }
+
+    fun putExercise(e: Exercise) {
+        val cv = ContentValues().apply {
+            put("start", e.start); put("end_", e.end); put("type", e.type); put("auto_type", e.autoType)
+            put("steps", e.steps); put("chosen", if (e.chosen) 1 else 0); put("notified", if (e.notified) 1 else 0)
+        }
+        writableDatabase.insertWithOnConflict("exercise", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
+    }
+
+    fun deleteExercise(start: Long) { writableDatabase.delete("exercise", "start=?", arrayOf(start.toString())) }
+
+    fun setExerciseType(start: Long, type: String) {
+        writableDatabase.execSQL("UPDATE exercise SET type=?, chosen=1 WHERE start=?", arrayOf<Any>(type, start))
+    }
+
     private fun createV3(db: SQLiteDatabase) {
         db.execSQL("CREATE TABLE IF NOT EXISTS vital(ts INTEGER, kind TEXT, v1 INTEGER, v2 INTEGER, PRIMARY KEY(ts, kind))")
+        createV4(db)
     }
 
     fun putVitals(list: List<Ycbt.Vital>): Int {
@@ -60,6 +93,7 @@ class Db private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "data.db", nu
             db.execSQL("ALTER TABLE ring_sport ADD COLUMN cleared INTEGER DEFAULT 0")
         }
         if (oldVersion < 3) createV3(db)
+        if (oldVersion < 4) createV4(db)
     }
 
     fun putHeart(list: List<Ycbt.HeartRec>): Int {

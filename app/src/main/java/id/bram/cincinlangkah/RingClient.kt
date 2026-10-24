@@ -25,7 +25,13 @@ import java.util.UUID
  * Semua logika berjalan di main thread (callback BLE dipindah lewat Handler).
  */
 @SuppressLint("MissingPermission")
-class RingClient(private val ctx: Context, private val onFinished: (ok: Boolean, summary: String) -> Unit) {
+class RingClient(
+    private val ctx: Context,
+    /** > 0: setelah riwayat, ukur detak jantung live selama sekian detik (dipakai saat olahraga berlangsung) */
+    private val liveHrSec: Int = 0,
+    private val onFinished: (ok: Boolean, summary: String) -> Unit,
+) {
+    private val liveHr = ArrayList<Int>()
 
     private val main = Handler(Looper.getMainLooper())
     private val db = Db.get(ctx)
@@ -268,6 +274,10 @@ class RingClient(private val ctx: Context, private val onFinished: (ok: Boolean,
                 }
             }
             Ycbt.G_REAL -> when (cmd) {
+                0x01 -> if (payload.isNotEmpty()) {
+                    val bpm = Ycbt.u8(payload, 0)
+                    if (bpm in 40..220) liveHr += bpm
+                }
                 0x00 -> if (payload.size >= 2) {
                     liveSteps = Ycbt.u16(payload, 0)
                     prefs.edit().putInt("live_steps", liveSteps!!).putLong("live_ts", System.currentTimeMillis()).apply()
@@ -299,6 +309,25 @@ class RingClient(private val ctx: Context, private val onFinished: (ok: Boolean,
                 deleting = true
                 for (h in savedTypes) send(Ycbt.deleteFrame(h), "hapus riwayat ${h.name} di cincin (sudah tersimpan)")
                 if (Ycbt.History.SPORT in savedTypes) db.markSportCleared(sportStarts)
+            }
+            if (liveHrSec > 0) {
+                AppLog.d("❤ Olahraga sedang berlangsung → ukur detak jantung live $liveHrSec dtk")
+                send(Ycbt.frame(Ycbt.G_APPCTRL, 0x0C, byteArrayOf(1, 1)), "siapkan sensor PPG")
+                send(Ycbt.frame(Ycbt.G_APPCTRL, 0x2F, byteArrayOf(1, 0)), "mulai ukur HR")
+                main.postDelayed({
+                    send(Ycbt.frame(Ycbt.G_APPCTRL, 0x2F, byteArrayOf(0, 0)), "stop ukur HR")
+                    if (liveHr.isNotEmpty()) {
+                        val now = System.currentTimeMillis()
+                        // simpan rata-rata per 10 detik terakhir sebagai beberapa titik
+                        val pts = liveHr.chunked(10).mapIndexed { i, c ->
+                            Ycbt.HeartRec(now - (liveHr.size - i * 10) * 1000L, c.average().toInt())
+                        }
+                        db.putHeart(pts)
+                        AppLog.d("❤ HR live: rata-rata ${liveHr.average().toInt()}, maks ${liveHr.max()} bpm")
+                    } else AppLog.d("❤ HR live tidak terbaca (cincin tidak terpakai / sensor tidak menempel?)")
+                    main.postDelayed({ finish(true, summary()) }, 1500)
+                }, liveHrSec * 1000L)
+                return
             }
             AppLog.d("Semua riwayat selesai. Menunggu 2 dtk lalu memutus…")
             main.postDelayed({ finish(true, summary()) }, 2000)

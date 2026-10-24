@@ -14,6 +14,8 @@
 
     <!-- Health Connect (langkah dari Samsung Health) -->
     <uses-permission android:name="android.permission.health.READ_STEPS" />
+    <uses-permission android:name="android.permission.health.READ_HEALTH_DATA_IN_BACKGROUND" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="true" />
     <uses-feature android:name="android.hardware.sensor.stepcounter" android:required="false" />
@@ -37,6 +39,8 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <receiver android:name=".ExerciseReceiver" android:exported="false" />
 
         <!-- Wajib untuk izin Health Connect -->
         <activity

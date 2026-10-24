@@ -70,7 +70,14 @@ object PhoneSteps {
 class StepWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, params) {
     override suspend fun doWork(): Result {
         AppLog.init(applicationContext)
-        PhoneSteps.sample(applicationContext, "latar")
+        val ctx = applicationContext
+        PhoneSteps.sample(ctx, "latar")
+        // Cek olahraga tiap 15 menit; kalau sedang berlangsung, ukur HR live dari cincin
+        val ongoing = try { Exercise.detect(ctx) } catch (e: Exception) { AppLog.d("Deteksi olahraga error: ${e.message}"); false }
+        if (ongoing) {
+            runRing(ctx, 45, "⟳ Olahraga berlangsung — sinkron + HR live")
+            try { Exercise.detect(ctx) } catch (_: Exception) {}
+        }
         return Result.success()
     }
 }

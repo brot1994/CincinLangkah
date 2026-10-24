@@ -16,6 +16,8 @@ import java.time.ZoneId
  */
 object HcSteps {
     val PERMS = setOf(HealthPermission.getReadPermission(StepsRecord::class))
+    /** yang diminta: baca langkah + baca di latar (untuk deteksi olahraga saat aplikasi tertutup) */
+    val REQUEST = PERMS + HealthPermission.PERMISSION_READ_HEALTH_DATA_IN_BACKGROUND
     private val lastLogged = HashMap<LocalDate, String>()
 
     fun available(ctx: Context) =
@@ -23,6 +25,10 @@ object HcSteps {
 
     suspend fun granted(ctx: Context): Boolean =
         HealthConnectClient.getOrCreate(ctx).permissionController.getGrantedPermissions().containsAll(PERMS)
+
+    suspend fun grantedBackground(ctx: Context): Boolean =
+        HealthConnectClient.getOrCreate(ctx).permissionController.getGrantedPermissions()
+            .contains(HealthPermission.PERMISSION_READ_HEALTH_DATA_IN_BACKGROUND)
 
     suspend fun hourly(ctx: Context, date: LocalDate): DoubleArray {
         val client = HealthConnectClient.getOrCreate(ctx)

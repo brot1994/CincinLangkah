@@ -34,28 +34,39 @@ class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
         val ctx = applicationContext
         AppLog.init(ctx)
         PhoneSteps.sample(ctx, "latar")
-        if (Build.VERSION.SDK_INT >= 31 &&
-            ContextCompat.checkSelfPermission(ctx, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED
-        ) return Result.success()
-        if (running) return Result.success()
-        val addr = ctx.getSharedPreferences("cfg", Context.MODE_PRIVATE).getString("addr", null)
-        if (addr.isNullOrBlank()) return Result.success()
-
-        AppLog.d("⟳ Sinkron otomatis")
-        running = true
-        val main = Handler(Looper.getMainLooper())
-        var client: RingClient? = null
-        val ok = withTimeoutOrNull(120_000) {
-            suspendCancellableCoroutine { cont ->
-                main.post {
-                    client = RingClient(ctx) { ok, _ -> if (cont.isActive) cont.resume(ok) }
-                    client!!.start(addr)
-                }
-                cont.invokeOnCancellation { main.post { client?.cancel() } }
-            }
-        }
-        if (ok == null) main.post { client?.cancel() }
-        running = false
+        val ongoing = try { Exercise.detect(ctx) } catch (e: Exception) { false }
+        runRing(ctx, if (ongoing) 45 else 0, "⟳ Sinkron otomatis")
+        try { Exercise.detect(ctx) } catch (_: Exception) {}
         return Result.success()
     }
+}
+
+/**
+ * Jalankan satu sinkron cincin dari latar (dipakai sinkron tiap jam dan
+ * pengecekan olahraga tiap 15 menit). Aman dipanggil bersamaan: hanya satu yang jalan.
+ */
+suspend fun runRing(ctx: Context, liveHrSec: Int, why: String): Boolean {
+    if (Build.VERSION.SDK_INT >= 31 &&
+        ContextCompat.checkSelfPermission(ctx, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED
+    ) return false
+    if (SyncWorker.running) return false
+    val addr = ctx.getSharedPreferences("cfg", Context.MODE_PRIVATE).getString("addr", null)
+    if (addr.isNullOrBlank()) return false
+
+    AppLog.d(why)
+    SyncWorker.running = true
+    val main = Handler(Looper.getMainLooper())
+    var client: RingClient? = null
+    val ok = withTimeoutOrNull(150_000) {
+        suspendCancellableCoroutine { cont ->
+            main.post {
+                client = RingClient(ctx, liveHrSec) { ok, _ -> if (cont.isActive) cont.resume(ok) }
+                client!!.start(addr)
+            }
+            cont.invokeOnCancellation { main.post { client?.cancel() } }
+        }
+    }
+    if (ok == null) main.post { client?.cancel() }
+    SyncWorker.running = false
+    return ok == true
 }
