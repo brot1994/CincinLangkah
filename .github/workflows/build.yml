@@ -20,7 +20,14 @@ jobs:
           gradle-version: "8.11.1"
 
       - name: Build
-        run: gradle --no-daemon assembleDebug
+        run: |
+          set -o pipefail
+          gradle --no-daemon assembleDebug 2>&1 | tee build.log || {
+            grep -E "^e: |error:|What went wrong|Could not|> " build.log | head -40 | while IFS= read -r l; do
+              echo "::error::${l//%/%25}"
+            done
+            exit 1
+          }
 
       - name: Zip APK
         run: |
