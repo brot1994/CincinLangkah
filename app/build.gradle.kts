@@ -5,7 +5,7 @@ plugins {
 
 android {
     namespace = "id.bram.cincinlangkah"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "id.bram.cincinlangkah"
