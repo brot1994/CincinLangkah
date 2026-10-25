@@ -125,6 +125,9 @@ object Exercise {
         val m = minuteSteps(ctx, from, to)
         val db = Db.get(ctx)
         val existing = db.exercises(from, to + 1)
+        // sesi yang sudah direkam jam tidak perlu dideteksi ulang
+        val watchS = try { WatchData.sessions(ctx, from, to) }
+            catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { emptyList() }
 
         // susun sesi
         data class Seg(var s: Int, var e: Int)
@@ -143,6 +146,7 @@ object Exercise {
             if (active < MIN_LEN_MIN) continue
             val start = from + seg.s * 60_000L
             val end = from + (seg.e + 1) * 60_000L
+            if (watchS.any { it.start < end && it.end > start }) continue
             val slice = m.copyOfRange(seg.s, seg.e + 1)
             val steps = slice.sum().roundToInt()
             val auto = guess(slice)

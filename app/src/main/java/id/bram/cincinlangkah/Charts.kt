@@ -148,13 +148,17 @@ class SleepView(ctx: Context, pal: Pal) : BaseChart(ctx, pal) {
 /** Detak jantung sepanjang hari. */
 class HeartView(ctx: Context, pal: Pal) : BaseChart(ctx, pal) {
     override val hDp = 110f
+    /** titik dari cincin */
     var pts: List<Ycbt.HeartRec> = emptyList()
+    /** garis dari jam */
+    var watch: List<Ycbt.HeartRec> = emptyList()
     var dayStart = 0L
     override fun onDraw(c: Canvas) {
-        if (pts.isEmpty()) { c.drawText("Belum ada data detak jantung", 0f, px(30f), text); return }
+        val all = pts + watch
+        if (all.isEmpty()) { c.drawText("Belum ada data detak jantung", 0f, px(30f), text); return }
         val left = px(26f); val top = px(8f); val bottom = height - px(18f)
-        val lo = ((pts.minOf { it.hr } - 5) / 10) * 10
-        val hi = ((pts.maxOf { it.hr } + 14) / 10) * 10
+        val lo = ((all.minOf { it.hr } - 5) / 10) * 10
+        val hi = ((all.maxOf { it.hr } + 14) / 10) * 10
         line.strokeWidth = px(1f); line.color = pal.grid
         for (v in listOf(lo, hi)) {
             val y = bottom - (bottom - top) * (v - lo) / (hi - lo).toFloat()
@@ -162,14 +166,28 @@ class HeartView(ctx: Context, pal: Pal) : BaseChart(ctx, pal) {
             c.drawText("$v", 0f, y + px(4f), text)
         }
         val day = 86_400_000f
-        val p = Path()
-        pts.forEachIndexed { i, r ->
-            val x = left + (width - left) * ((r.tsMs - dayStart) / day)
-            val y = bottom - (bottom - top) * (r.hr - lo) / (hi - lo).toFloat()
-            if (i == 0) p.moveTo(x, y) else p.lineTo(x, y)
+        fun x(r: Ycbt.HeartRec) = left + (width - left) * ((r.tsMs - dayStart) / day)
+        fun y(r: Ycbt.HeartRec) = bottom - (bottom - top) * (r.hr - lo) / (hi - lo).toFloat()
+        if (watch.isNotEmpty()) {
+            val p = Path()
+            var prev: Ycbt.HeartRec? = null
+            for (r in watch) {
+                // putus garis kalau ada celah > 30 menit
+                if (prev == null || r.tsMs - prev.tsMs > 30 * 60_000L) p.moveTo(x(r), y(r)) else p.lineTo(x(r), y(r))
+                prev = r
+            }
+            line.color = pal.heart; line.strokeWidth = px(1.6f); line.strokeJoin = Paint.Join.ROUND
+            c.drawPath(p, line)
         }
-        line.color = pal.heart; line.strokeWidth = px(2f); line.strokeJoin = Paint.Join.ROUND
-        c.drawPath(p, line)
+        if (pts.isNotEmpty()) {
+            if (watch.isEmpty() && pts.size > 1) {
+                val p = Path()
+                pts.forEachIndexed { i, r -> if (i == 0) p.moveTo(x(r), y(r)) else p.lineTo(x(r), y(r)) }
+                line.color = pal.ring; line.strokeWidth = px(1.6f); c.drawPath(p, line)
+            }
+            fill.color = pal.ring
+            for (r in pts) c.drawCircle(x(r), y(r), px(3.5f), fill)
+        }
         for (h in listOf(0, 6, 12, 18)) c.drawText("%02d".format(h), left + (width - left) * h / 24f, height - px(4f), text)
     }
 }

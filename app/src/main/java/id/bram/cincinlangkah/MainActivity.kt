@@ -47,6 +47,7 @@ class MainActivity : AppCompatActivity() {
     private var date: LocalDate = LocalDate.now()
     private var ring: RingClient? = null
     private val hcCache = HashMap<LocalDate, DoubleArray>()
+    private var lastWatch: WatchData.Day? = null
     private var refreshJob: kotlinx.coroutines.Job? = null
 
     private val night by lazy {
@@ -224,10 +225,16 @@ class MainActivity : AppCompatActivity() {
             val hc = hcFor(d)
             hcBtn.visibility = if (hc == null && HcSteps.available(this@MainActivity)) View.VISIBLE else View.GONE
             // Izin baca di latar (untuk deteksi olahraga saat aplikasi tertutup), minta sekali
-            if (hc != null && !prefs.getBoolean("hc_bg_asked", false)) {
-                prefs.edit().putBoolean("hc_bg_asked", true).apply()
-                try { if (!HcSteps.grantedBackground(this@MainActivity)) hcPerms.launch(HcSteps.REQUEST) } catch (_: Exception) {}
+            if (hc != null && !prefs.getBoolean("hc_watch_asked", false)) {
+                prefs.edit().putBoolean("hc_watch_asked", true).apply()
+                try {
+                    if (!HcSteps.grantedBackground(this@MainActivity) || !WatchData.granted(this@MainActivity))
+                        hcPerms.launch(HcSteps.REQUEST)
+                } catch (_: Exception) {}
             }
+            val watch = try { WatchData.load(this@MainActivity, d) }
+                catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                catch (e: Exception) { AppLog.d("Data jam error: ${e.message}"); null }
             val weekHc = HashMap<LocalDate, DoubleArray>()
             for (i in 0..6) { val wd = d.minusDays(i.toLong()); hcFor(wd)?.let { weekHc[wd] = it } }
             if (d == LocalDate.now()) try { Exercise.detect(this@MainActivity) }
@@ -235,11 +242,12 @@ class MainActivity : AppCompatActivity() {
             val (day, wk) = withContext(Dispatchers.IO) {
                 Report.build(this@MainActivity, d, hc) to Report.week(this@MainActivity, d, weekHc)
             }
-            if (d == date) render(day, wk)
+            if (d == date) render(day, wk, watch)
         }
     }
 
-    private fun render(day: Report.Day, wk: List<Pair<LocalDate, Double>>) {
+    private fun render(day: Report.Day, wk: List<Pair<LocalDate, Double>>, watch: WatchData.Day?) {
+        lastWatch = watch
         val goal = prefs.getInt("goal", 10_000)
         stepRing.steps = day.total
         stepRing.goal = goal
@@ -255,18 +263,27 @@ class MainActivity : AppCompatActivity() {
         hourBars.nowHour = if (isToday) java.time.LocalTime.now().hour else -1
         hourBars.invalidate()
 
-        // tidur
-        val tot = day.sleepTotalMin
-        sleepBig.text = if (tot > 0) "${tot / 60} j ${tot % 60} m" else "–"
-        sleepView.segs = day.sleep; sleepView.invalidate()
-        sleepLegend.text = if (day.sleep.isEmpty()) ""
-        else "● Nyenyak ${hm(day.sleepMin(1))}   ● Ringan ${hm(day.sleepMin(2))}   ● REM ${hm(day.sleepMin(3))}   ● Terjaga ${hm(day.sleepMin(4))}"
+        // tidur: pakai sumber yang mencatat tidur lebih lama (jam biasanya lebih lengkap)
+        fun asleep(l: List<Ycbt.SleepSeg>) = l.filter { it.stage in 1..3 }.sumOf { it.durSec } / 60
+        val wSleep = watch?.sleep ?: emptyList()
+        val useWatch = asleep(wSleep) > asleep(day.sleep)
+        val segs = if (useWatch) wSleep else day.sleep
+        val tot = asleep(segs)
+        fun stageMin(st: Int) = segs.filter { it.stage == st }.sumOf { it.durSec } / 60
+        sleepBig.text = if (tot > 0) "${tot / 60} j ${tot % 60} m" + (if (useWatch) "  ⌚" else "  💍") else "–"
+        sleepView.segs = segs; sleepView.invalidate()
+        sleepLegend.text = if (segs.isEmpty()) ""
+        else "● Nyenyak ${hm(stageMin(1))}   ● Ringan ${hm(stageMin(2))}   ● REM ${hm(stageMin(3))}   ● Terjaga ${hm(stageMin(4))}" +
+            "\nSumber: " + (if (useWatch) "jam" else "cincin") +
+            (if (wSleep.isNotEmpty() && day.sleep.isNotEmpty()) " (jam ${hm(asleep(wSleep))} · cincin ${hm(asleep(day.sleep))})" else "")
 
-        // detak jantung
-        val hr = day.heart
+        // detak jantung: titik = cincin, garis = jam
+        val wHr = watch?.heart ?: emptyList()
+        val hr = (day.heart + wHr).sortedBy { it.tsMs }
         heartBig.text = if (hr.isEmpty()) "–" else
             "${hr.last().hr} bpm   ·   ${hr.minOf { it.hr }}–${hr.maxOf { it.hr }}"
-        heartView.pts = hr; heartView.dayStart = Report.dayStart(day.date); heartView.invalidate()
+        heartView.pts = day.heart; heartView.watch = wHr
+        heartView.dayStart = Report.dayStart(day.date); heartView.invalidate()
 
         week.days = wk; week.goal = goal; week.selected = day.date; week.invalidate()
 
@@ -284,7 +301,7 @@ class MainActivity : AppCompatActivity() {
             }
             t.spark.dayStart = ds; t.spark.invalidate()
         }
-        fill(tSpo2, day.spo2, "%")
+        fill(tSpo2, (day.spo2 + (watch?.spo2 ?: emptyList())).sortedBy { it.tsMs }, "%")
         fill(tBp, day.bp, "", two = true)
         fill(tHrv, day.hrv, " ms")
         fill(tResp, day.resp, "/mnt")
@@ -296,8 +313,29 @@ class MainActivity : AppCompatActivity() {
     private fun renderExercise(day: Report.Day) {
         exBox.removeAllViews()
         val from = Report.dayStart(day.date)
+        val ws = lastWatch?.sessions ?: emptyList()
+        // sesi deteksi otomatis yang bertumpuk dengan sesi dari jam disembunyikan (jam lebih akurat)
         val list = Db.get(this).exercises(from, from + 86_400_000L)
-        if (list.isEmpty()) {
+            .filter { e -> ws.none { it.start < e.end && it.end > e.start } }
+        val tfw = SimpleDateFormat("HH:mm", Locale.US)
+        for (w in ws) {
+            val mins = ((w.end - w.start) / 60_000L).toInt()
+            val hr = (day.heart + (lastWatch?.heart ?: emptyList())).filter { it.tsMs in w.start..w.end }.map { it.hr }
+            val kcal = Exercise.met(w.type ?: "") * prefs.getInt("berat", 70) * mins / 60.0
+            exBox.addView(TextView(this).apply {
+                text = "${w.type?.let { Exercise.emoji(it) } ?: "🏅"}  ${w.label}  ⌚"
+                textSize = 17f; setTextColor(pal.fg); typeface = Typeface.DEFAULT_BOLD; setPadding(0, px(4), 0, 0)
+            })
+            exBox.addView(TextView(this).apply {
+                text = buildString {
+                    append("${tfw.format(Date(w.start))}–${tfw.format(Date(w.end))} · $mins menit")
+                    if (hr.isNotEmpty()) append(" · HR ${hr.average().roundToInt()} rata², maks ${hr.max()}")
+                    append(" · ±${kcal.roundToInt()} kkal · dari jam")
+                }
+                textSize = 12.5f; setTextColor(pal.muted); setPadding(0, px(2), 0, px(12))
+            })
+        }
+        if (list.isEmpty() && ws.isEmpty()) {
             exBox.addView(TextView(this).apply { text = "Belum ada olahraga hari ini"; textSize = 13f; setTextColor(pal.muted) })
             return
         }
@@ -455,6 +493,7 @@ class MainActivity : AppCompatActivity() {
         heartBig = big(c4)
         heartView = HeartView(this, pal)
         c4.addView(heartView)
+        c4.addView(legend(listOf(pal.ring to "Cincin (titik)", pal.heart to "Jam (garis)")))
 
         // Tanda vital
         val cv = card(root)

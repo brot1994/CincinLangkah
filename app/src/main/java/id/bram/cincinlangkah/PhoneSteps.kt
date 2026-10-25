@@ -54,7 +54,7 @@ object PhoneSteps {
             Db.get(ctx).putPhone(now, v, boot)
             AppLog.d("📱 Step counter HP = ${v.toLong()} ($why)")
         } else {
-            AppLog.d("📱 Step counter HP tidak terbaca ($why)")
+            if (why != "latar") AppLog.d("📱 Step counter HP tidak terbaca ($why)")
         }
         return v
     }
