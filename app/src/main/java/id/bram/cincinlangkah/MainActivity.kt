@@ -74,8 +74,10 @@ class MainActivity : AppCompatActivity() {
     private lateinit var heartView: HeartView
     private lateinit var week: WeekView
     private lateinit var scroll: ScrollView
-    private lateinit var statGoal: TextView
-    private lateinit var miniHour: HourBarsView
+    private lateinit var rings: ActivityRingsView
+    private lateinit var mKcal: Pair<TextView, TextView>
+    private lateinit var mSteps: Pair<TextView, TextView>
+    private lateinit var mEx: Pair<TextView, TextView>
     private lateinit var miniSleep: SleepView
     private lateinit var miniHeart: HeartView
     private lateinit var miniWeek: WeekView
@@ -263,18 +265,14 @@ class MainActivity : AppCompatActivity() {
     private fun render(day: Report.Day, wk: List<Pair<LocalDate, Double>>, watch: WatchData.Day?) {
         lastWatch = watch
         val goal = prefs.getInt("goal", 10_000)
-        stepRing.steps = day.total
-        stepRing.goal = goal
-        stepRing.sub = ""
-        stepRing.invalidate()
-        statGoal.text = "Target ${fmtN(goal.toDouble())} · ${(day.total * 100 / goal).roundToInt()}%"
-        statKcal.text = "🔥  ${day.kcal.roundToInt()} kkal"
-        statKm.text = "📍  " + "%.2f km".format(Locale("id", "ID"), day.distKm)
+        val goalKcal = prefs.getInt("goal_kcal", 300)
+        rings.kcal = (day.kcal / goalKcal).toFloat()
+        rings.steps = (day.total / goal).toFloat()
+        rings.invalidate()
+        setMetric(mKcal, day.kcal.roundToInt().toString(), "/$goalKcal kkal")
+        setMetric(mSteps, fmtN(day.total), "/${fmtN(goal.toDouble())} langkah")
         val ringT = day.ring.sum(); val phoneT = day.phoneBest.sum()
-        statSrc.text = "💍 ${fmtN(ringT)}   📱 ${fmtN(phoneT)}"
-        miniHour.ring = day.ring; miniHour.phone = day.phoneBest
-        miniHour.nowHour = if (day.date == LocalDate.now()) java.time.LocalTime.now().hour else -1
-        miniHour.invalidate()
+        statSrc.text = "%.2f km".format(Locale("id", "ID"), day.distKm) + "   ·   💍 cincin ${fmtN(ringT)}   ·   📱 HP ${fmtN(phoneT)}"
 
         val isToday = day.date == LocalDate.now()
         hourBars.ring = day.ring; hourBars.phone = day.phoneBest
@@ -349,6 +347,9 @@ class MainActivity : AppCompatActivity() {
             val all = autos.map { Triple(it.start, it.end, Exercise.label(it.type)) } + ws.map { Triple(it.start, it.end, it.label) }
             val mins = all.sumOf { ((it.second - it.first) / 60_000L).toInt() }
             tEx.value.text = if (all.isEmpty()) "–" else "$mins menit"
+            val goalEx = prefs.getInt("goal_ex", 30)
+            rings.ex = mins.toFloat() / goalEx; rings.invalidate()
+            setMetric(mEx, "$mins", "/$goalEx mnt")
             tEx.sub.text = if (all.isEmpty()) "belum ada hari ini"
                 else all.maxBy { it.first }.let { "${it.third} · ${SimpleDateFormat("HH:mm", Locale.US).format(Date(it.first))}" } +
                     if (all.size > 1) " (+${all.size - 1})" else ""
@@ -503,26 +504,26 @@ class MainActivity : AppCompatActivity() {
         root.addView(head, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { bottomMargin = px(10) })
         updateStatus()
 
-        // ===== HERO: cincin progres + ringkasan + grafik per jam mini =====
-        val hero = card(root, tint = pal.ring, pad = 12)
+        // ===== HERO: tiga cincin aktivitas ala Huawei =====
+        val hero = card(root, pad = 14)
         val heroTop = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        stepRing = StepRingView(this, pal).apply {
-            compact = true; hOverride = 118f
-            layoutParams = LinearLayout.LayoutParams(px(118), px(118))
+        rings = ActivityRingsView(this, pal).apply {
+            hOverride = 150f
+            layoutParams = LinearLayout.LayoutParams(px(150), px(150))
         }
-        heroTop.addView(stepRing)
+        heroTop.addView(rings)
         val heroRight = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(px(14), 0, 0, 0)
+            setPadding(px(18), 0, 0, 0)
             layoutParams = LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f)
         }
-        statGoal = TextView(this).apply { textSize = 13f; setTextColor(pal.muted) }
-        statKcal = heroLine(heroRight); statKm = heroLine(heroRight); statSrc = heroLine(heroRight)
-        heroRight.addView(statGoal, 0)
+        mKcal = metric(heroRight, rings.kcalColor, "Kalori")
+        mSteps = metric(heroRight, rings.stepColor, "Langkah")
+        mEx = metric(heroRight, rings.exColor, "Durasi olahraga")
         heroTop.addView(heroRight)
         hero.addView(heroTop)
-        miniHour = HourBarsView(this, pal).apply { compact = true; hOverride = 34f }
-        hero.addView(miniHour, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { topMargin = px(8) })
+        statSrc = TextView(this).apply { textSize = 11.5f; setTextColor(pal.muted); setPadding(0, px(8), 0, 0); gravity = Gravity.CENTER }
+        hero.addView(statSrc)
 
         // ===== UBIN 2×2 =====
         val g1 = row(); val g2 = row()
@@ -594,7 +595,6 @@ class MainActivity : AppCompatActivity() {
         tSleep.box.setOnClickListener { scrollToCard(cardSleep) }
         tHeart.box.setOnClickListener { scrollToCard(cardHeart) }
         tEx.box.setOnClickListener { scrollToCard(cardEx) }
-        miniHour.setOnClickListener { scrollToCard(cardHour) }
         hero.setOnClickListener { scrollToCard(cardHour) }
 
         hcBtn = bigButton("Hubungkan Samsung Health (Health Connect)", primary = false) { doHc() }
@@ -624,6 +624,20 @@ class MainActivity : AppCompatActivity() {
             if (!has) { prefs.edit().putInt("berat", berat.text.toString().toIntOrNull()?.coerceIn(30, 200) ?: 70).apply(); refresh() }
         }
         c7.addView(berat)
+        val goalsRow = row()
+        fun goalField(label: String, key: String, def: Int, range: IntRange): LinearLayout {
+            val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; layoutParams = LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f) }
+            col.addView(note(label))
+            val e = edit(prefs.getInt(key, def).toString(), InputType.TYPE_CLASS_NUMBER)
+            e.setOnFocusChangeListener { _, has ->
+                if (!has) { prefs.edit().putInt(key, e.text.toString().toIntOrNull()?.coerceIn(range) ?: def).apply(); refresh() }
+            }
+            col.addView(e)
+            return col
+        }
+        goalsRow.addView(goalField("Target kkal", "goal_kcal", 300, 50..3000))
+        goalsRow.addView(goalField("Target olahraga (mnt)", "goal_ex", 30, 5..300))
+        c7.addView(goalsRow)
         c7.addView(note("Target langkah per hari"))
         goalEdit = edit(prefs.getInt("goal", 10_000).toString(), InputType.TYPE_CLASS_NUMBER)
         goalEdit.setOnFocusChangeListener { _, has ->
@@ -679,7 +693,7 @@ class MainActivity : AppCompatActivity() {
             orientation = LinearLayout.VERTICAL
             setPadding(px(12), px(10), px(12), px(10))
             background = GradientDrawable().apply { cornerRadius = px(20).toFloat(); setColor(tinted(color)) }
-            layoutParams = LinearLayout.LayoutParams(0, px(112), 1f).apply { if (!last) marginEnd = px(10) }
+            layoutParams = LinearLayout.LayoutParams(0, px(118), 1f).apply { if (!last) marginEnd = px(10) }
         }
         box.addView(TextView(this).apply { text = label; textSize = 12f; setTextColor(color); typeface = Typeface.DEFAULT_BOLD })
         val v = TextView(this).apply { textSize = 21f; setTextColor(pal.fg); typeface = Typeface.DEFAULT_BOLD; maxLines = 1 }
@@ -688,6 +702,20 @@ class MainActivity : AppCompatActivity() {
         row.addView(box)
         return BigTile(box, v, sub)
     }
+
+    /** Baris metrik: ● angka besar /target  +  label */
+    private fun metric(parent: LinearLayout, color: Int, label: String): Pair<TextView, TextView> {
+        val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.BOTTOM }
+        top.addView(TextView(this).apply { text = "● "; textSize = 12f; setTextColor(color); setPadding(0, 0, 0, px(5)) })
+        val v = TextView(this).apply { textSize = 24f; setTextColor(pal.fg); typeface = Typeface.DEFAULT_BOLD; includeFontPadding = false }
+        val g = TextView(this).apply { textSize = 12f; setTextColor(pal.muted); typeface = Typeface.DEFAULT_BOLD; setPadding(px(3), 0, 0, px(2)) }
+        top.addView(v); top.addView(g)
+        parent.addView(top)
+        parent.addView(TextView(this).apply { text = label; textSize = 11.5f; setTextColor(pal.muted); setPadding(px(14), 0, 0, px(6)) })
+        return v to g
+    }
+
+    private fun setMetric(m: Pair<TextView, TextView>, value: String, goal: String) { m.first.text = value; m.second.text = goal }
 
     private fun heroLine(parent: LinearLayout) = TextView(this).apply {
         textSize = 14f; setTextColor(pal.fg); setPadding(0, px(3), 0, 0); maxLines = 1

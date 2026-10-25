@@ -88,6 +88,38 @@ class StepRingView(ctx: Context, pal: Pal) : BaseChart(ctx, pal) {
     }
 }
 
+/** Tiga cincin aktivitas ala Huawei: kalori (luar), langkah (tengah), durasi olahraga (dalam). */
+class ActivityRingsView(ctx: Context, pal: Pal) : BaseChart(ctx, pal) {
+    override val hDp = 150f
+    val kcalColor = Color.parseColor("#FF9F1C")
+    val stepColor = Color.parseColor("#2ECC71")
+    val exColor = Color.parseColor("#2F80ED")
+    /** progres 0..∞ (1 = target tercapai) */
+    var kcal = 0f
+    var steps = 0f
+    var ex = 0f
+    override fun onDraw(c: Canvas) {
+        val cx = width / 2f; val cy = height / 2f
+        val sw = min(width, height) * 0.105f
+        val gap = sw * 0.28f
+        val r0 = min(width, height) / 2f - sw / 2f - px(1f)
+        val emoji = Paint(Paint.ANTI_ALIAS_FLAG).apply { textSize = sw * 0.72f; textAlign = Paint.Align.CENTER }
+        listOf(Triple(kcal, kcalColor, "🔥"), Triple(steps, stepColor, "👟"), Triple(ex, exColor, "⏱")).forEachIndexed { i, (v, col, ic) ->
+            val r = r0 - i * (sw + gap)
+            line.strokeWidth = sw; line.strokeCap = Paint.Cap.ROUND
+            line.color = col; line.alpha = 55
+            c.drawCircle(cx, cy, r, line)
+            line.alpha = 255
+            val rect = RectF(cx - r, cy - r, cx + r, cy + r)
+            val f = v.coerceIn(0f, 1f)
+            // ujung awal selalu terlihat sebagai titik kecil
+            c.drawArc(rect, -90f + 8f, maxOf(360f * f - 8f, 0.5f), false, line)
+            if (v > 1f) { line.alpha = 140; c.drawArc(rect, -90f, 360f * ((v - 1f).coerceAtMost(1f)), false, line); line.alpha = 255 }
+            c.drawText(ic, cx - sw * 0.05f, cy - r + emoji.textSize * 0.36f, emoji)
+        }
+    }
+}
+
 /** Batang per jam: cincin vs HP, berdampingan. */
 class HourBarsView(ctx: Context, pal: Pal) : BaseChart(ctx, pal) {
     override val hDp = 170f
@@ -253,13 +285,13 @@ class WeekView(ctx: Context, pal: Pal) : BaseChart(ctx, pal) {
         if (days.isEmpty()) return
         val top = if (compact) px(2f) else px(18f)
         val bottom = height - if (compact) px(14f) else px(22f)
-        val maxV = max(goal.toDouble(), days.maxOf { it.second }) * 1.05
+        val maxV = (if (compact) max(1.0, days.maxOf { it.second }) else max(goal.toDouble(), days.maxOf { it.second })) * 1.05
         val w = width / days.size.toFloat()
         // garis target
         val gy = bottom - ((bottom - top) * goal / maxV).toFloat()
         line.color = pal.muted; line.strokeWidth = px(1f)
         line.pathEffect = DashPathEffect(floatArrayOf(px(4f), px(4f)), 0f)
-        c.drawLine(0f, gy, width.toFloat(), gy, line)
+        if (!compact) c.drawLine(0f, gy, width.toFloat(), gy, line)
         line.pathEffect = null
         val center = Paint(text).apply { textAlign = Paint.Align.CENTER }
         days.forEachIndexed { i, (d, v) ->
