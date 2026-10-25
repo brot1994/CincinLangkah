@@ -19,6 +19,12 @@ object HcSteps {
     /** yang diminta: baca langkah + baca di latar (untuk deteksi olahraga saat aplikasi tertutup) */
     val REQUEST = PERMS + WatchData.PERMS + HealthPermission.PERMISSION_READ_HEALTH_DATA_IN_BACKGROUND
     private val lastLogged = HashMap<LocalDate, String>()
+    /** Health Sync menulis data jam Huawei ke Health Connect atas namanya sendiri */
+    const val WATCH_SRC = "nl.appyhapps.healthsync"
+    private val watchByDate = HashMap<LocalDate, DoubleArray>()
+
+    /** Langkah jam per jam untuk tanggal itu (terisi setelah hourly() dipanggil). */
+    fun watchFor(date: LocalDate): DoubleArray? = synchronized(watchByDate) { watchByDate[date] }
 
     fun available(ctx: Context) =
         HealthConnectClient.getSdkStatus(ctx) == HealthConnectClient.SDK_AVAILABLE
@@ -60,8 +66,14 @@ object HcSteps {
         // Pilih sumber yang catatannya rinci (rata-rata ≤ 1 jam); Samsung Health kadang menulis
         // satu catatan sepanjang hari sehingga tidak bisa dipakai untuk grafik per jam.
         fun avgMin(k: String) = (durSum[k] ?: 0L) / maxOf(1, durN[k] ?: 1) / 60_000L
-        val fine = perSrc.filter { it.value.sum() > 0 && avgMin(it.key) <= 60 }
-        val pick = (if (fine.isNotEmpty()) fine else perSrc.filter { it.value.sum() > 0 })
+        // langkah jam dipisah (kolom sendiri), bukan kandidat "langkah HP"
+        synchronized(watchByDate) {
+            val w = perSrc[WATCH_SRC]
+            if (w != null) watchByDate[date] = w else watchByDate.remove(date)
+        }
+        val phoneSrc = perSrc.filterKeys { it != WATCH_SRC }
+        val fine = phoneSrc.filter { it.value.sum() > 0 && avgMin(it.key) <= 60 }
+        val pick = (if (fine.isNotEmpty()) fine else phoneSrc.filter { it.value.sum() > 0 })
             .entries.sortedWith(compareBy<Map.Entry<String, DoubleArray>> { avgMin(it.key) }
                 .thenByDescending { it.value.sum() })
             .firstOrNull()?.key

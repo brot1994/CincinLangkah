@@ -125,13 +125,15 @@ class HourBarsView(ctx: Context, pal: Pal) : BaseChart(ctx, pal) {
     override val hDp = 170f
     var ring = DoubleArray(24)
     var phone = DoubleArray(24)
+    /** langkah dari jam (opsional, batang ketiga) */
+    var watch: DoubleArray? = null
     var nowHour = -1
     override fun onDraw(c: Canvas) {
         val left = if (compact) 0f else px(30f)
         val bottom = if (compact) height.toFloat() else height - px(20f)
         val top = if (compact) px(2f) else px(8f)
         val w = (width - left) / 24f
-        val maxV = max(100.0, max(ring.maxOrNull() ?: 0.0, phone.maxOrNull() ?: 0.0))
+        val maxV = max(100.0, max(max(ring.maxOrNull() ?: 0.0, phone.maxOrNull() ?: 0.0), watch?.maxOrNull() ?: 0.0))
         val nice = niceCeil(maxV)
         // grid
         line.strokeWidth = px(1f); line.color = pal.grid
@@ -141,7 +143,8 @@ class HourBarsView(ctx: Context, pal: Pal) : BaseChart(ctx, pal) {
             c.drawLine(left, y, width.toFloat(), y, line)
             if (!compact) c.drawText(short(nice * i / 2), 0f, y + px(4f), text)
         }
-        val bw = w * 0.36f
+        val three = watch?.let { it.sum() > 0 } == true
+        val bw = if (three) w * 0.26f else w * 0.36f
         for (h in 0 until 24) {
             val x = left + w * h
             if (h == nowHour) {
@@ -153,8 +156,10 @@ class HourBarsView(ctx: Context, pal: Pal) : BaseChart(ctx, pal) {
                 fill.color = col
                 c.drawRoundRect(RectF(x + off, y, x + off + bw, bottom), px(2f), px(2f), fill)
             }
-            bar(ring[h], w * 0.12f, pal.ring)
-            bar(phone[h], w * 0.12f + bw, pal.phone)
+            val off = if (three) w * 0.11f else w * 0.12f
+            bar(ring[h], off, pal.ring)
+            bar(phone[h], off + bw, pal.phone)
+            if (three) bar(watch!![h], off + bw * 2, pal.awake)
             if (!compact && h % 6 == 0) c.drawText("%02d".format(h), x, height - px(4f), text)
         }
     }

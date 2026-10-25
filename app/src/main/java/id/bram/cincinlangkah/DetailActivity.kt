@@ -212,10 +212,10 @@ class DetailActivity : AppCompatActivity() {
                 sub.text = "%.2f km".format(id, r.distKm) +
                     "  ·  💍 ${fmtN(r.ring.sum())}  ·  📱 ${fmtN(r.phoneBest.sum())}"
                 chartBox.addView(HourBarsView(this, pal).apply {
-                    ring = r.ring; phone = r.phoneBest
+                    ring = r.ring; phone = r.phoneBest; watch = r.watch
                     nowHour = if (date == LocalDate.now()) java.time.LocalTime.now().hour else -1
                 })
-                chartBox.addView(legendRow(listOf(pal.ring to "Cincin", pal.phone to "HP")))
+                chartBox.addView(legendRow(listOf(pal.ring to "Cincin", pal.phone to "HP", pal.awake to "Jam")))
                 for (h in 23 downTo 0) if (r.fused[h] >= 0.5) listRow("%02d:00".format(h), fmtN(r.fused[h]) + " langkah", null)
             }
             Metric.SLEEP -> {

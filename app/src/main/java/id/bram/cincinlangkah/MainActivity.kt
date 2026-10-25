@@ -275,7 +275,7 @@ class MainActivity : AppCompatActivity() {
         statSrc.text = "%.2f km".format(Locale("id", "ID"), day.distKm) + "   ·   💍 cincin ${fmtN(ringT)}   ·   📱 HP ${fmtN(phoneT)}"
 
         val isToday = day.date == LocalDate.now()
-        hourBars.ring = day.ring; hourBars.phone = day.phoneBest
+        hourBars.ring = day.ring; hourBars.phone = day.phoneBest; hourBars.watch = day.watch
         hourBars.nowHour = if (isToday) java.time.LocalTime.now().hour else -1
         hourBars.invalidate()
 
@@ -428,7 +428,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun renderTable(day: Report.Day) {
         table.removeAllViews()
-        table.addView(row("Jam", "Cincin", "Cin.kum", "HP", "Samsung", "Gab.", header = true, shade = false, hi = false))
+        table.addView(row("Jam", "💍", "kum", "📱", "HC", "⌚", "Gab.", header = true, shade = false, hi = false))
         val now = java.time.LocalDateTime.now()
         for (h in 0 until 24) {
             if (day.date == now.toLocalDate() && h > now.hour) break
@@ -437,11 +437,13 @@ class MainActivity : AppCompatActivity() {
             table.addView(row("%02d".format(h), n(r), n(day.ringCum[h]),
                 if (day.phoneCovered[h]) n(day.phone[h]) else "·",
                 day.hc?.let { n(it[h]) } ?: "·",
-                n(day.fused[h]) + if (day.fromPhone[h]) "ᴴ" else "",
+                day.watch?.let { n(it[h]) } ?: "·",
+                n(day.fused[h]) + when { day.fromWatch[h] -> "ᴶ"; day.fromPhone[h] -> "ᴴ"; else -> "" },
                 header = false, shade = h % 2 == 1, hi = hi))
         }
         table.addView(row("Total", n(day.ringSport.sum()), n(day.ringCum.sum()), n(day.phone.sum()),
-            day.hc?.let { n(it.sum()) } ?: "·", n(day.total), header = true, shade = false, hi = false))
+            day.hc?.let { n(it.sum()) } ?: "·", day.watch?.let { n(it.sum()) } ?: "·", n(day.total),
+            header = true, shade = false, hi = false))
     }
 
     private fun n(v: Double): String = if (v < 0.5) "–" else v.roundToInt().toString()
@@ -456,7 +458,7 @@ class MainActivity : AppCompatActivity() {
                 else -> Color.TRANSPARENT
             })
         }
-        val weights = floatArrayOf(0.8f, 1.1f, 1.1f, 1f, 1.2f, 1.1f)
+        val weights = floatArrayOf(0.9f, 1f, 1f, 1f, 1f, 1f, 1.15f)
         cols.forEachIndexed { i, t ->
             ll.addView(TextView(this).apply {
                 text = t
@@ -554,7 +556,7 @@ class MainActivity : AppCompatActivity() {
         c2.addView(title("Langkah per jam"))
         hourBars = HourBarsView(this, pal)
         c2.addView(hourBars)
-        c2.addView(legend(listOf(pal.ring to "Cincin", pal.phone to "HP")))
+        c2.addView(legend(listOf(pal.ring to "Cincin", pal.phone to "HP", pal.awake to "Jam")))
         c2.addView(note("Total langkah = gabungan: tiap jam diambil yang lebih besar, karena masing-masing bisa terlewat " +
             "(HP ditinggal di meja, atau tangan diam saat jalan)."))
 
@@ -607,9 +609,10 @@ class MainActivity : AppCompatActivity() {
         val c6 = card(tableBox)
         table = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         c6.addView(table)
-        c6.addView(note("Cincin = bucket 30 menit · Cin.kum = penghitung kumulatif cincin · HP = step counter HP " +
-            "(dicatat aplikasi ini tiap ±15 menit) · Samsung = Health Connect · Gab. = dipakai di dashboard " +
-            "(ᴴ = dari HP). Baris kuning = cincin dan HP beda jauh."))
+        c6.addView(note("💍 = cincin (bucket 30 menit) · kum = penghitung kumulatif cincin · 📱 = step counter HP " +
+            "(dicatat aplikasi ini tiap ±15 menit) · HC = langkah HP dari Health Connect · ⌚ = jam Huawei (lewat Health Sync) · " +
+            "Gab. = dipakai di dashboard, tiap jam diambil yang terbesar (ᴴ = dari HP, ᴶ = dari jam). " +
+            "Baris kuning = cincin dan HP beda jauh."))
         root.addView(tableBox)
 
         // Pengaturan & log (lipat)

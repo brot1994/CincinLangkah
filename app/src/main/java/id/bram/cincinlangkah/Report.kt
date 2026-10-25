@@ -26,6 +26,8 @@ object Report {
         val spo2: List<Ycbt.Vital>,
         val hrv: List<Ycbt.Vital>,
         val resp: List<Ycbt.Vital>,
+        val watch: DoubleArray?,        // langkah dari jam (Health Sync)
+        val fromWatch: BooleanArray,    // jam di mana data jam yang dipakai
     ) {
         val total get() = fused.sum()
         fun sleepMin(stage: Int) = sleep.filter { it.stage == stage }.sumOf { it.durSec } / 60
@@ -80,8 +82,11 @@ object Report {
         // Bucket aktivitas lebih rinci; penghitung kumulatif hanya cadangan kalau bucket kosong
         val ring = if (sport.sum() > 0) sport.copyOf() else cum.copyOf()
         val phoneBest = DoubleArray(24) { if (useHc) hc!![it] else if (covered[it]) phone[it] else 0.0 }
-        val fromPhone = BooleanArray(24) { phoneBest[it] > ring[it] }
-        val fused = DoubleArray(24) { maxOf(ring[it], phoneBest[it]) }
+        val watch = HcSteps.watchFor(date)?.takeIf { it.sum() > 0 }
+        val w = DoubleArray(24) { watch?.get(it) ?: 0.0 }
+        val fromWatch = BooleanArray(24) { w[it] > ring[it] && w[it] > phoneBest[it] }
+        val fromPhone = BooleanArray(24) { !fromWatch[it] && phoneBest[it] > ring[it] }
+        val fused = DoubleArray(24) { maxOf(ring[it], phoneBest[it], w[it]) }
 
         // Jarak & kalori: pakai rasio dari cincin kalau ada, kalau tidak perkiraan umum
         val rSteps = sportRecs.filter { it.startMs >= from }.sumOf { it.steps }
@@ -103,7 +108,7 @@ object Report {
         return Day(date, sport, cum, phone, covered, hc, ring, phoneBest, fused, fromPhone,
             total * mPerStep / 1000.0, total * kcalPerStep, sleep, heart,
             db.vitals("bp", from, to), db.vitals("spo2", from, to),
-            db.vitals("hrv", from, to), db.vitals("resp", from, to))
+            db.vitals("hrv", from, to), db.vitals("resp", from, to), watch, fromWatch)
     }
 
     /** Total langkah gabungan untuk beberapa hari (untuk grafik mingguan). */
