@@ -409,3 +409,78 @@ class PeriodBarsView(ctx: Context, pal: Pal) : BaseChart(ctx, pal) {
         else -> v.roundToInt().toString()
     }
 }
+
+/** Grafik berat badan program: garis target (putus-putus), proyeksi, dan berat tercatat (titik + garis). */
+class WeightChartView(ctx: Context, pal: Pal) : BaseChart(ctx, pal) {
+    override val hDp = 200f
+    var start: LocalDate = LocalDate.now()
+    var end: LocalDate = LocalDate.now().plusMonths(6)
+    var w0 = 120.0
+    var wT = 90.0
+    var pts: List<Pair<Long, Double>> = emptyList()
+    /** proyeksi: dari (tanggal, berat) sekarang ke (akhir, berat proyeksi) */
+    var projFrom: Pair<LocalDate, Double>? = null
+    var projEnd: Double? = null
+    var color = pal.ring
+
+    override fun onDraw(c: Canvas) {
+        val z = ZoneId.systemDefault()
+        val left = px(34f); val right = width - px(6f); val top = px(10f); val bottom = height - px(20f)
+        val t0 = start.atStartOfDay(z).toInstant().toEpochMilli().toDouble()
+        val t1 = end.atStartOfDay(z).toInstant().toEpochMilli().toDouble()
+        val all = pts.map { it.second } + listOf(w0, wT) + listOfNotNull(projEnd)
+        var lo = all.min() - 2; var hi = all.max() + 2
+        lo = kotlin.math.floor(lo / 5) * 5; hi = kotlin.math.ceil(hi / 5) * 5
+        fun x(ms: Double) = left + ((ms - t0) / (t1 - t0)).toFloat().coerceIn(0f, 1f) * (right - left)
+        fun y(v: Double) = bottom - ((v - lo) / (hi - lo)).toFloat() * (bottom - top)
+        fun xd(d: LocalDate) = x(d.atStartOfDay(z).toInstant().toEpochMilli().toDouble())
+
+        // grid
+        line.strokeWidth = px(1f); line.color = pal.grid; line.pathEffect = null
+        var g = lo
+        val step = if (hi - lo > 30) 10.0 else 5.0
+        while (g <= hi + 0.01) {
+            c.drawLine(left, y(g), right, y(g), line)
+            c.drawText(g.roundToInt().toString(), 0f, y(g) + px(4f), text)
+            g += step
+        }
+        // label bulan
+        val center = Paint(text).apply { textAlign = Paint.Align.CENTER; textSize = px(10f) }
+        var m = start.withDayOfMonth(1).plusMonths(1)
+        while (m.isBefore(end)) {
+            val xx = xd(m)
+            c.drawLine(xx, top, xx, bottom, line)
+            c.drawText(m.month.getDisplayName(TextStyle.SHORT, Locale("id", "ID")), xx, height - px(5f), center)
+            m = m.plusMonths(1)
+        }
+        // garis target
+        line.color = pal.muted; line.strokeWidth = px(1.5f)
+        line.pathEffect = DashPathEffect(floatArrayOf(px(5f), px(4f)), 0f)
+        c.drawLine(xd(start), y(w0), xd(end), y(wT), line)
+        // proyeksi
+        val pf = projFrom; val pe = projEnd
+        if (pf != null && pe != null) {
+            line.color = pal.awake; line.strokeWidth = px(2f)
+            c.drawLine(xd(pf.first), y(pf.second), xd(end), y(pe), line)
+        }
+        line.pathEffect = null
+        // garis hari ini
+        val today = LocalDate.now()
+        if (!today.isBefore(start) && today.isBefore(end)) {
+            line.color = pal.grid; line.strokeWidth = px(2f)
+            c.drawLine(xd(today), top, xd(today), bottom, line)
+        }
+        // berat tercatat
+        if (pts.isNotEmpty()) {
+            line.color = color; line.strokeWidth = px(2.5f)
+            val path = Path()
+            pts.forEachIndexed { i, p -> val xx = x(p.first.toDouble()); val yy = y(p.second); if (i == 0) path.moveTo(xx, yy) else path.lineTo(xx, yy) }
+            c.drawPath(path, line)
+            fill.color = color
+            for (p in pts) c.drawCircle(x(p.first.toDouble()), y(p.second), px(3.5f), fill)
+        }
+        // label target
+        val tl = Paint(text).apply { textAlign = Paint.Align.RIGHT; color = pal.muted; textSize = px(10f) }
+        c.drawText("target ${wT.roundToInt()}", right, y(wT) - px(4f), tl)
+    }
+}

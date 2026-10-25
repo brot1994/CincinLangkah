@@ -19,6 +19,7 @@
     <uses-permission android:name="android.permission.health.READ_SLEEP" />
     <uses-permission android:name="android.permission.health.READ_OXYGEN_SATURATION" />
     <uses-permission android:name="android.permission.health.READ_EXERCISE" />
+    <uses-permission android:name="android.permission.health.READ_WEIGHT" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="true" />
@@ -45,6 +46,7 @@
         </activity>
 
         <activity android:name=".DetailActivity" android:exported="false" />
+        <activity android:name=".ProgramActivity" android:exported="false" />
 
         <receiver android:name=".ExerciseReceiver" android:exported="false" />
 

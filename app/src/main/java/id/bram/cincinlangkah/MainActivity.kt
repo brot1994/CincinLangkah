@@ -97,6 +97,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tHrv: Tile
     private lateinit var tResp: Tile
     private lateinit var table: LinearLayout
+    private lateinit var progTitle: TextView
+    private lateinit var progSub: TextView
     private lateinit var tableBox: LinearLayout
     private lateinit var settingsBox: LinearLayout
     private lateinit var addr: EditText
@@ -264,8 +266,10 @@ class MainActivity : AppCompatActivity() {
 
     private fun render(day: Report.Day, wk: List<Pair<LocalDate, Double>>, watch: WatchData.Day?) {
         lastWatch = watch
-        val goal = prefs.getInt("goal", 10_000)
-        val goalKcal = prefs.getInt("goal_kcal", 300)
+        val plan = Program.today(this, day.date)
+        val goal = plan?.steps ?: prefs.getInt("goal", 10_000)
+        val goalKcal = plan?.activeKcal ?: prefs.getInt("goal_kcal", 300)
+        renderProgram(plan)
         rings.kcal = (day.kcal / goalKcal).toFloat()
         rings.steps = (day.total / goal).toFloat()
         rings.invalidate()
@@ -347,7 +351,7 @@ class MainActivity : AppCompatActivity() {
             val all = autos.map { Triple(it.start, it.end, Exercise.label(it.type)) } + ws.map { Triple(it.start, it.end, it.label) }
             val mins = all.sumOf { ((it.second - it.first) / 60_000L).toInt() }
             tEx.value.text = if (all.isEmpty()) "–" else "$mins menit"
-            val goalEx = prefs.getInt("goal_ex", 30)
+            val goalEx = Program.today(this, day.date)?.exMin ?: prefs.getInt("goal_ex", 30)
             rings.ex = mins.toFloat() / goalEx; rings.invalidate()
             setMetric(mEx, "$mins", "/$goalEx mnt")
             tEx.sub.text = if (all.isEmpty()) "belum ada hari ini"
@@ -399,7 +403,7 @@ class MainActivity : AppCompatActivity() {
                 textSize = 12.5f; setTextColor(pal.muted); setPadding(0, px(2), 0, px(6))
             })
             val chips = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-            for (t in Exercise.TYPES) {
+            if (e.type in Exercise.TYPES) for (t in Exercise.TYPES) {
                 val sel = t == e.type
                 chips.addView(Button(this).apply {
                     text = "${Exercise.emoji(t)} ${Exercise.label(t)}"; isAllCaps = false; textSize = 13f
@@ -419,6 +423,20 @@ class MainActivity : AppCompatActivity() {
             box.addView(chips)
             exBox.addView(box)
         }
+    }
+
+    private fun renderProgram(p: Program.Plan?) {
+        val c = Program.cfg(this)
+        if (p == null) {
+            progTitle.text = if (c.active) "🎯 Program dimulai ${c.start}" else "🎯 Program turun berat"
+            progSub.text = if (c.active) "" else "Belum aktif · ketuk untuk mengatur & memulai"
+            return
+        }
+        val s = p.today
+        progTitle.text = "🎯 ${"%.1f".format(Locale("id", "ID"), p.curW)} kg  ·  minggu ${p.week}/${c.totalWeeks}" +
+            "  ·  ${if (p.curW - p.lineW <= 0.5) "✅ sesuai jalur" else "⚠ di atas jalur"}"
+        progSub.text = "${s.emoji} ${s.name}" + (if (s.rest) "" else " ${s.minutes}'") +
+            "  ·  makan ±${fmtN(p.intake.toDouble())} kkal  ·  ✔ ${Program.checkCount(this, p.date)}/${Program.CHECKS.size}"
     }
 
     private fun fmtShort(v: Double) = if (v >= 1000) "%.1frb".format(Locale("id", "ID"), v / 1000) else fmtN(v)
@@ -527,6 +545,18 @@ class MainActivity : AppCompatActivity() {
         statSrc = TextView(this).apply { textSize = 11.5f; setTextColor(pal.muted); setPadding(0, px(8), 0, 0); gravity = Gravity.CENTER }
         hero.addView(statSrc)
 
+        // ===== PROGRAM (baris tipis) =====
+        val pc = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(px(14), px(9), px(14), px(9))
+            background = GradientDrawable().apply { cornerRadius = px(16).toFloat(); setColor(tinted(Color.parseColor("#FF9F1C"))) }
+            setOnClickListener { ProgramActivity.open(this@MainActivity) }
+        }
+        progTitle = TextView(this).apply { textSize = 13.5f; setTextColor(pal.fg); typeface = Typeface.DEFAULT_BOLD; maxLines = 1 }
+        progSub = TextView(this).apply { textSize = 11.5f; setTextColor(pal.muted); maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }
+        pc.addView(progTitle); pc.addView(progSub)
+        root.addView(pc, rowLp())
+
         // ===== UBIN 2×2 =====
         val g1 = row(); val g2 = row()
         root.addView(g1, rowLp()); root.addView(g2, rowLp())
@@ -622,7 +652,7 @@ class MainActivity : AppCompatActivity() {
         c7.addView(note("Alamat Bluetooth cincin"))
         addr = edit(prefs.getString("addr", "") ?: "", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS)
         c7.addView(addr)
-        c7.addView(note("Berat badan (kg) — untuk perkiraan kalori olahraga"))
+        c7.addView(note("Berat badan (kg) — untuk perkiraan kalori olahraga (otomatis dari catatan berat program)"))
         val berat = edit(prefs.getInt("berat", 70).toString(), InputType.TYPE_CLASS_NUMBER)
         berat.setOnFocusChangeListener { _, has ->
             if (!has) { prefs.edit().putInt("berat", berat.text.toString().toIntOrNull()?.coerceIn(30, 200) ?: 70).apply(); refresh() }

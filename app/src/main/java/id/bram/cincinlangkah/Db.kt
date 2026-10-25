@@ -5,7 +5,7 @@ import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 
-class Db private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "data.db", null, 4) {
+class Db private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "data.db", null, 5) {
 
     companion object {
         @Volatile private var inst: Db? = null
@@ -30,7 +30,32 @@ class Db private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "data.db", nu
     private fun createV4(db: SQLiteDatabase) {
         db.execSQL("CREATE TABLE IF NOT EXISTS exercise(start INTEGER PRIMARY KEY, end_ INTEGER, type TEXT, auto_type TEXT, " +
             "steps INTEGER, chosen INTEGER DEFAULT 0, notified INTEGER DEFAULT 0)")
+        createV5(db)
     }
+
+    private fun createV5(db: SQLiteDatabase) {
+        db.execSQL("CREATE TABLE IF NOT EXISTS weight(ts INTEGER PRIMARY KEY, kg REAL, src TEXT)")
+    }
+
+    /** Berat badan: (waktu, kg). */
+    fun weights(from: Long, to: Long): List<Pair<Long, Double>> {
+        val out = ArrayList<Pair<Long, Double>>()
+        readableDatabase.rawQuery("SELECT ts,kg FROM weight WHERE ts>=? AND ts<? ORDER BY ts",
+            arrayOf(from.toString(), to.toString())).use { c -> while (c.moveToNext()) out += c.getLong(0) to c.getDouble(1) }
+        return out
+    }
+
+    fun latestWeight(before: Long): Pair<Long, Double>? =
+        readableDatabase.rawQuery("SELECT ts,kg FROM weight WHERE ts<? ORDER BY ts DESC LIMIT 1", arrayOf(before.toString())).use { c ->
+            if (c.moveToNext()) c.getLong(0) to c.getDouble(1) else null
+        }
+
+    fun putWeight(ts: Long, kg: Double, src: String) {
+        val cv = ContentValues().apply { put("ts", ts); put("kg", kg); put("src", src) }
+        writableDatabase.insertWithOnConflict("weight", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
+    }
+
+    fun deleteWeight(ts: Long) { writableDatabase.delete("weight", "ts=?", arrayOf(ts.toString())) }
 
     data class Exercise(val start: Long, val end: Long, val type: String, val autoType: String,
                         val steps: Int, val chosen: Boolean, val notified: Boolean)
@@ -94,6 +119,7 @@ class Db private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "data.db", nu
         }
         if (oldVersion < 3) createV3(db)
         if (oldVersion < 4) createV4(db)
+        if (oldVersion < 5) createV5(db)
     }
 
     fun putHeart(list: List<Ycbt.HeartRec>): Int {

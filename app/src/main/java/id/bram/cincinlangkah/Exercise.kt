@@ -37,11 +37,12 @@ object Exercise {
     const val PINGPONG = "pingpong"
     const val JALAN = "jalan"
     const val LARI = "lari"
+    const val KEKUATAN = "kekuatan"   // dicatat manual dari halaman Program
     val TYPES = listOf(PINGPONG, JALAN, LARI)
-    fun label(t: String) = when (t) { PINGPONG -> "Pingpong"; JALAN -> "Jalan"; LARI -> "Lari"; else -> t }
-    fun emoji(t: String) = when (t) { PINGPONG -> "🏓"; JALAN -> "🚶"; LARI -> "🏃"; else -> "•" }
+    fun label(t: String) = when (t) { PINGPONG -> "Pingpong"; JALAN -> "Jalan"; LARI -> "Lari"; KEKUATAN -> "Latihan kekuatan"; else -> t }
+    fun emoji(t: String) = when (t) { PINGPONG -> "🏓"; JALAN -> "🚶"; LARI -> "🏃"; KEKUATAN -> "💪"; else -> "•" }
     /** MET perkiraan untuk kalori */
-    fun met(t: String) = when (t) { PINGPONG -> 4.0; JALAN -> 3.5; LARI -> 8.5; else -> 3.5 }
+    fun met(t: String) = when (t) { PINGPONG -> 4.0; JALAN -> 3.5; LARI -> 8.5; KEKUATAN -> 3.5; else -> 3.5 }
 
     private const val ACTIVE_MIN_STEPS = 12.0
     private const val MAX_GAP_MIN = 3
