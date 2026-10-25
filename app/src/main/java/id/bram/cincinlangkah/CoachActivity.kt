@@ -130,7 +130,7 @@ class CoachActivity : AppCompatActivity() {
                     cprefs.edit().putString(aiKey(d.date), t).putLong(aiKey(d.date) + "_t", System.currentTimeMillis()).apply()
                     body.text = t; info.text = "dibuat barusan · ${Ai.model(this@CoachActivity)}"
                 } catch (e: kotlinx.coroutines.CancellationException) { throw e
-                } catch (e: Exception) { body.text = "Gagal: ${e.message}\n(Komentar bawaan di atas tetap berlaku.)" }
+                } catch (e: Exception) { body.text = "Gagal: ${e.message}\n${Ai.explain(e.message ?: "")}\n(Komentar bawaan di atas tetap berlaku.)" }
                 btn.isEnabled = true
             }
         }
@@ -183,7 +183,7 @@ class CoachActivity : AppCompatActivity() {
                     val a = Ai.ask(this@CoachActivity, msg, hist)
                     chat += q to a; wait.text = a
                 } catch (ex: kotlinx.coroutines.CancellationException) { throw ex
-                } catch (ex: Exception) { wait.text = "Gagal: ${ex.message}" }
+                } catch (ex: Exception) { wait.text = "Gagal: ${ex.message}\n${Ai.explain(ex.message ?: "")}" }
                 send.isEnabled = true
                 scroll.post { scroll.smoothScrollTo(0, row.bottom + c.top) }
             }
@@ -249,18 +249,28 @@ class CoachActivity : AppCompatActivity() {
         btns.forEach { (b, k) -> b.setOnClickListener { prov = k; refresh() } }
         c.addView(keyL); c.addView(keyE); c.addView(help); c.addView(modelL); c.addView(modelE); c.addView(priv)
         val r = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, px(8), 0, 0) }
+        val result = TextView(this).apply { textSize = 13f; setTextColor(pal.fg); setTextIsSelectable(true); setPadding(0, px(8), 0, 0); visibility = View.GONE }
         r.addView(smallBtn("Simpan & tes") {
             Ai.save(this, prov, if (prov == Ai.OFF) null else keyE.text.toString(), if (prov == Ai.OFF) null else modelE.text.toString())
             if (prov == Ai.OFF) { toast("AI dimatikan"); load(); return@smallBtn }
+            result.visibility = View.VISIBLE; result.setTextColor(pal.fg)
+            result.text = "Menguji… (kalau server sibuk, dicoba ulang otomatis sampai ±30 detik)"
             lifecycleScope.launch {
                 try {
                     val t = Ai.ask(this@CoachActivity, "Balas dengan satu kalimat pendek: siap membantu.", maxTokens = 60)
-                    toast("✅ Tersambung: $t"); load()
+                    result.setTextColor(pal.ring)
+                    result.text = "✅ Tersambung (${Ai.lastModel}): $t"
+                    AppLog.d("✨ AI tersambung: ${Ai.name(this@CoachActivity)} / ${Ai.lastModel}")
+                    load()
                 } catch (e: kotlinx.coroutines.CancellationException) { throw e
-                } catch (e: Exception) { toast("Gagal: ${e.message}") }
+                } catch (e: Exception) {
+                    result.setTextColor(pal.bp)
+                    result.text = "✖ ${e.message}\n\n" + Ai.explain(e.message ?: "")
+                }
             }
         })
         c.addView(r)
+        c.addView(result)
         c.addView(Switch(this).apply {
             text = "Notifikasi skor pagi (setelah data tidur masuk) + rangkuman tiap Senin"
             setTextColor(pal.fg); textSize = 13f; isChecked = prefs.getBoolean("coach_notif", true)

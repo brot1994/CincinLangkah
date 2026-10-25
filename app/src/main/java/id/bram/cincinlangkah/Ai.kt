@@ -14,6 +14,22 @@ object Ai {
     const val OFF = "off"; const val GEMINI = "gemini"; const val CLAUDE = "claude"
     const val DEF_GEMINI = "gemini-flash-latest"
     const val DEF_CLAUDE = "claude-haiku-5-5"
+    /** cadangan kalau model utama sedang penuh (503/429) */
+    private val FALLBACK_GEMINI = listOf("gemini-flash-lite-latest", "gemini-2.5-flash")
+    @Volatile var lastModel = ""
+
+    /** Penjelasan singkat untuk pesan error yang umum. */
+    fun explain(msg: String): String = when {
+        msg.contains("503") || msg.contains("high demand", true) || msg.contains("overloaded", true) ->
+            "Server AI sedang penuh — API key-mu SUDAH BENAR, cuma servernya sibuk. Coba lagi beberapa menit lagi; " +
+                "aplikasi juga otomatis mencoba ulang & pindah ke model cadangan."
+        msg.contains("429") -> "Kuota gratis per menit/hari sedang habis. Tunggu sebentar (atau besok untuk kuota harian)."
+        msg.contains("401") || msg.contains("403") || msg.contains("API key", true) || msg.contains("API_KEY", true) ->
+            "API key ditolak — kemungkinan salah salin. Salin ulang dengan tombol Copy key di AI Studio."
+        msg.contains("404") || msg.contains("not found", true) -> "Nama model tidak dikenal. Kosongkan kolom Model supaya kembali ke default."
+        msg.contains("Unable to resolve host", true) || msg.contains("timeout", true) -> "Tidak ada koneksi internet / timeout."
+        else -> "Pesan lengkap tercatat juga di Pengaturan & log (dashboard) — bisa dibagikan."
+    }
 
     private fun p(ctx: Context) = ctx.getSharedPreferences("cfg", Context.MODE_PRIVATE)
     fun provider(ctx: Context) = p(ctx).getString("ai_provider", OFF) ?: OFF
@@ -48,7 +64,27 @@ Aturan:
         withContext(Dispatchers.IO) {
             val prov = provider(ctx); val k = key(ctx); val m = model(ctx)
             require(prov != OFF && k.isNotBlank()) { "AI belum diatur" }
-            if (prov == GEMINI) gemini(k, m, user, history, maxTokens) else claude(k, m, user, history, maxTokens)
+            val models = if (prov == GEMINI) (listOf(m) + FALLBACK_GEMINI).distinct() else listOf(m)
+            var last: Exception? = null
+            for (model in models) {
+                // coba ulang dengan jeda kalau server sibuk
+                for (attempt in 0..2) {
+                    try {
+                        val t = if (prov == GEMINI) gemini(k, model, user, history, maxTokens) else claude(k, model, user, history, maxTokens)
+                        lastModel = model
+                        return@withContext t
+                    } catch (e: Exception) {
+                        last = e
+                        AppLog.d("✨ AI gagal ($model, coba ${attempt + 1}): ${e.message}")
+                        val busy = e.message?.let { it.contains("HTTP 503") || it.contains("HTTP 429") || it.contains("HTTP 529") || it.contains("HTTP 500") } == true
+                        if (!busy) break
+                        if (attempt < 2) kotlinx.coroutines.delay(if (attempt == 0) 3_000L else 8_000L)
+                    }
+                }
+                val msg = last?.message ?: ""
+                if (!(msg.contains("HTTP 503") || msg.contains("HTTP 429") || msg.contains("HTTP 404"))) break // key salah dsb: jangan ganti model
+            }
+            throw last ?: RuntimeException("gagal")
         }
 
     private fun post(url: String, headers: Map<String, String>, body: String): String {
