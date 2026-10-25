@@ -235,7 +235,7 @@ class CoachActivity : AppCompatActivity() {
             listOf(keyL, keyE, modelL, modelE, help, priv).forEach { it.visibility = if (on) View.VISIBLE else View.GONE }
             if (!on) return
             keyL.text = "API key ${if (prov == Ai.GEMINI) "Gemini" else "Claude"}"
-            keyE.setText(Ai.key(this, prov)); keyE.hint = if (prov == Ai.GEMINI) "AIza…" else "sk-ant-…"
+            keyE.setText(Ai.key(this, prov)); keyE.hint = if (prov == Ai.GEMINI) "AQ.… atau AIza…" else "sk-ant-…"
             modelE.setText(Ai.model(this, prov))
             help.text = if (prov == Ai.GEMINI) "Buat API key gratis di Google AI Studio ›" else "Buat API key di Anthropic Console (perlu isi saldo) ›"
             help.setOnClickListener {
