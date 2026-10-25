@@ -21,6 +21,9 @@ object HcSteps {
     private val lastLogged = HashMap<LocalDate, String>()
     /** Health Sync menulis data jam Huawei ke Health Connect atas namanya sendiri */
     const val WATCH_SRC = "nl.appyhapps.healthsync"
+    /** Sumber wearable (bukan HP): jam Huawei via Health Sync, Fitbit (Air / Pixel Watch) */
+    fun isWearable(pkg: String): Boolean =
+        pkg == WATCH_SRC || pkg.contains("fitbit", ignoreCase = true)
     private val watchByDate = HashMap<LocalDate, DoubleArray>()
 
     /** Langkah jam per jam untuk tanggal itu (terisi setelah hourly() dipanggil). */
@@ -68,10 +71,12 @@ object HcSteps {
         fun avgMin(k: String) = (durSum[k] ?: 0L) / maxOf(1, durN[k] ?: 1) / 60_000L
         // langkah jam dipisah (kolom sendiri), bukan kandidat "langkah HP"
         synchronized(watchByDate) {
-            val w = perSrc[WATCH_SRC]
-            if (w != null) watchByDate[date] = w else watchByDate.remove(date)
+            // kalau dua wearable dipakai bersamaan: per jam ambil yang terbesar (tidak dijumlah)
+            val ws = perSrc.filterKeys { isWearable(it) }.values
+            if (ws.isNotEmpty()) watchByDate[date] = DoubleArray(24) { h -> ws.maxOf { it[h] } }
+            else watchByDate.remove(date)
         }
-        val phoneSrc = perSrc.filterKeys { it != WATCH_SRC }
+        val phoneSrc = perSrc.filterKeys { !isWearable(it) }
         val fine = phoneSrc.filter { it.value.sum() > 0 && avgMin(it.key) <= 60 }
         val pick = (if (fine.isNotEmpty()) fine else phoneSrc.filter { it.value.sum() > 0 })
             .entries.sortedWith(compareBy<Map.Entry<String, DoubleArray>> { avgMin(it.key) }

@@ -610,7 +610,7 @@ class MainActivity : AppCompatActivity() {
         table = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         c6.addView(table)
         c6.addView(note("💍 = cincin (bucket 30 menit) · kum = penghitung kumulatif cincin · 📱 = step counter HP " +
-            "(dicatat aplikasi ini tiap ±15 menit) · HC = langkah HP dari Health Connect · ⌚ = jam Huawei (lewat Health Sync) · " +
+            "(dicatat aplikasi ini tiap ±15 menit) · HC = langkah HP dari Health Connect · ⌚ = jam/gelang (Huawei via Health Sync, Fitbit) · " +
             "Gab. = dipakai di dashboard, tiap jam diambil yang terbesar (ᴴ = dari HP, ᴶ = dari jam). " +
             "Baris kuning = cincin dan HP beda jauh."))
         root.addView(tableBox)

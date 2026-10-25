@@ -71,12 +71,15 @@ object Exercise {
                     }
                     token = r.pageToken
                 } while (!token.isNullOrEmpty())
-                // pakai sumber yang paling rinci
-                val best = perSrc.keys.filter { (perSrc[it]?.sum() ?: 0.0) > 0 }
-                    .minByOrNull { (dur[it] ?: 0L) / maxOf(1, cnt[it] ?: 1) }
-                if (best != null) {
-                    val avg = (dur[best] ?: 0L) / maxOf(1, cnt[best] ?: 1)
-                    if (avg <= 15 * 60_000L) { perSrc[best]!!.copyInto(out); filled = true }
+                // semua sumber yang rinci (HP, Fitbit, jam): per menit ambil yang terbesar,
+                // jadi kalau HP tertinggal, gelang/jam tetap bisa memicu deteksi
+                val fine = perSrc.keys.filter {
+                    (perSrc[it]?.sum() ?: 0.0) > 0 && (dur[it] ?: 0L) / maxOf(1, cnt[it] ?: 1) <= 15 * 60_000L
+                }
+                for (k in fine) {
+                    val a = perSrc[k]!!
+                    for (i in 0 until n) if (a[i] > out[i]) out[i] = a[i]
+                    filled = true
                 }
             }
         } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) {}
