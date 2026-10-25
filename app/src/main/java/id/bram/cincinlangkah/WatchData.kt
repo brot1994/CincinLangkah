@@ -72,18 +72,19 @@ object WatchData {
         }
     }
 
-    suspend fun load(ctx: Context, date: LocalDate): Day? {
-        if (!granted(ctx)) return null
+    suspend fun heart(ctx: Context, from: Long, to: Long): List<Ycbt.HeartRec> {
+        if (!granted(ctx)) return emptyList()
+        val c = HealthConnectClient.getOrCreate(ctx)
+        return readAll(c, HeartRateRecord::class, Instant.ofEpochMilli(from), Instant.ofEpochMilli(to))
+            .flatMap { r -> r.samples.map { Ycbt.HeartRec(it.time.toEpochMilli(), it.beatsPerMinute.toInt()) } }
+            .filter { it.hr in 25..230 && it.tsMs in from until to }.sortedBy { it.tsMs }
+    }
+
+    /** Tidur "malam sebelum" tanggal ini: 18:00 hari sebelumnya s/d 14:00. */
+    suspend fun sleep(ctx: Context, date: LocalDate): List<Ycbt.SleepSeg> {
+        if (!granted(ctx)) return emptyList()
         val c = HealthConnectClient.getOrCreate(ctx)
         val zone = ZoneId.systemDefault()
-        val from = date.atStartOfDay(zone).toInstant()
-        val to = date.plusDays(1).atStartOfDay(zone).toInstant()
-
-        val heart = readAll(c, HeartRateRecord::class, from, to)
-            .flatMap { r -> r.samples.map { Ycbt.HeartRec(it.time.toEpochMilli(), it.beatsPerMinute.toInt()) } }
-            .filter { it.hr in 25..230 }.sortedBy { it.tsMs }
-
-        // tidur malam sebelumnya 18:00 s/d 14:00
         val sFrom = date.minusDays(1).atStartOfDay(zone).plusHours(18).toInstant()
         val sTo = date.atStartOfDay(zone).plusHours(14).toInstant()
         val sleep = ArrayList<Ycbt.SleepSeg>()
@@ -103,12 +104,26 @@ object WatchData {
             }
         }
         sleep.sortBy { it.startMs }
+        return sleep
+    }
 
-        val spo2 = readAll(c, OxygenSaturationRecord::class, from, to)
+    suspend fun spo2(ctx: Context, from: Long, to: Long): List<Ycbt.Vital> {
+        if (!granted(ctx)) return emptyList()
+        val c = HealthConnectClient.getOrCreate(ctx)
+        return readAll(c, OxygenSaturationRecord::class, Instant.ofEpochMilli(from), Instant.ofEpochMilli(to))
             .map { Ycbt.Vital(it.time.toEpochMilli(), "spo2", it.percentage.value.toInt()) }
             .filter { it.v1 in 70..100 }.sortedBy { it.tsMs }
+    }
 
-        val sess = sessions(ctx, from.toEpochMilli(), to.toEpochMilli())
+    suspend fun load(ctx: Context, date: LocalDate): Day? {
+        if (!granted(ctx)) return null
+        val zone = ZoneId.systemDefault()
+        val from = date.atStartOfDay(zone).toInstant().toEpochMilli()
+        val to = date.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
+        val heart = heart(ctx, from, to)
+        val sleep = sleep(ctx, date)
+        val spo2 = spo2(ctx, from, to)
+        val sess = sessions(ctx, from, to)
 
         val msg = "⌚ Health Connect $date: HR ${heart.size} titik, tidur ${sleep.sumOf { it.durSec } / 60} mnt, " +
             "SpO2 ${spo2.size}, olahraga ${sess.size}" +

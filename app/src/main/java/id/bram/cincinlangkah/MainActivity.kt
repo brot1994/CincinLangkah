@@ -536,7 +536,7 @@ class MainActivity : AppCompatActivity() {
         tHeart.box.addView(miniHeart)
         tEx = bigTile(g2, "🏓 Olahraga", pal.bp)
         tWeek = bigTile(g2, "📅 7 hari", pal.ring, last = true)
-        miniWeek = WeekView(this, pal).apply { compact = true; hOverride = 34f; onPick = { d -> date = d; refresh() } }
+        miniWeek = WeekView(this, pal).apply { compact = true; hOverride = 34f; onPick = { d -> DetailActivity.open(this@MainActivity, Metric.STEPS, d) } }
         tWeek.box.addView(miniWeek)
 
         // ===== TANDA VITAL: 4 ubin sebaris =====
@@ -591,11 +591,12 @@ class MainActivity : AppCompatActivity() {
         c5.addView(note("Tanda vital diukur otomatis oleh cincin/jam (sensor cahaya). Tensi & SpO₂ dari cincin adalah " +
             "perkiraan, bukan pengganti alat medis."))
 
-        // tap ubin → gulir ke detailnya
-        tSleep.box.setOnClickListener { scrollToCard(cardSleep) }
-        tHeart.box.setOnClickListener { scrollToCard(cardHeart) }
-        tEx.box.setOnClickListener { scrollToCard(cardEx) }
-        hero.setOnClickListener { scrollToCard(cardHour) }
+        // tap kartu → halaman detail Hari / Minggu / Bulan
+        fun go(v: View, m: Metric) = v.setOnClickListener { DetailActivity.open(this, m, date) }
+        go(tSleep.box, Metric.SLEEP); go(tHeart.box, Metric.HEART); go(tEx.box, Metric.EXERCISE)
+        tWeek.box.setOnClickListener { DetailActivity.open(this, Metric.STEPS, date, 1) }; go(hero, Metric.STEPS)
+        go(tSpo2.value.parent as View, Metric.SPO2); go(tBp.value.parent as View, Metric.BP)
+        go(tHrv.value.parent as View, Metric.HRV); go(tResp.value.parent as View, Metric.RESP)
 
         hcBtn = bigButton("Hubungkan Samsung Health (Health Connect)", primary = false) { doHc() }
         root.addView(hcBtn)

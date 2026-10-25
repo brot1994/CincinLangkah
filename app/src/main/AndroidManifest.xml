@@ -44,6 +44,8 @@
             </intent-filter>
         </activity>
 
+        <activity android:name=".DetailActivity" android:exported="false" />
+
         <receiver android:name=".ExerciseReceiver" android:exported="false" />
 
         <!-- Wajib untuk izin Health Connect -->

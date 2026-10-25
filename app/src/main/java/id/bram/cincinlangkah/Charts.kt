@@ -317,3 +317,90 @@ private fun niceCeil(v: Double): Double {
 
 private fun short(v: Double): String =
     if (v >= 1000) "%.1frb".format(v / 1000).replace(".0rb", "rb").replace('.', ',') else v.roundToInt().toString()
+
+/** Grafik minggu/bulan: batang (jumlah/rata²) atau rentang min–maks per hari. */
+class PeriodBarsView(ctx: Context, pal: Pal) : BaseChart(ctx, pal) {
+    override val hDp = 200f
+    var vals: List<DayVal> = emptyList()
+    var metric: Metric = Metric.STEPS
+    var color = pal.ring
+    var selected: LocalDate? = null
+    var onPick: ((LocalDate) -> Unit)? = null
+    init {
+        setOnTouchListener { _, e ->
+            if (e.action == android.view.MotionEvent.ACTION_UP && vals.isNotEmpty()) {
+                val left = px(32f)
+                val i = ((e.x - left) / ((width - left) / vals.size.toFloat())).toInt().coerceIn(0, vals.size - 1)
+                if (vals[i].v != null) onPick?.invoke(vals[i].date)
+            }
+            true
+        }
+    }
+
+    override fun onDraw(c: Canvas) {
+        if (vals.isEmpty()) return
+        val left = px(32f); val top = px(10f); val bottom = height - px(20f)
+        val w = (width - left) / vals.size
+        val has = vals.filter { it.v != null }
+        val ranged = metric.ranged
+        var lo: Double; var hi: Double
+        if (has.isEmpty()) { lo = 0.0; hi = 1.0 }
+        else if (ranged) {
+            lo = has.minOf { it.lo ?: it.v!! }; hi = has.maxOf { it.hi ?: it.v!! }
+            val pad = maxOf(3.0, (hi - lo) * 0.15); lo -= pad; hi += pad
+            if (metric == Metric.SPO2) hi = minOf(hi, 101.0)
+        } else { lo = 0.0; hi = has.maxOf { it.v!! } * 1.12 }
+        if (hi - lo < 1e-6) hi = lo + 1
+        fun y(v: Double) = bottom - ((bottom - top) * (v - lo) / (hi - lo)).toFloat()
+
+        // grid + label sumbu
+        line.strokeWidth = px(1f); line.color = pal.grid; line.pathEffect = null
+        for (i in 0..2) {
+            val v = lo + (hi - lo) * i / 2
+            val yy = y(v)
+            c.drawLine(left, yy, width.toFloat(), yy, line)
+            c.drawText(axis(v), 0f, yy + px(4f), text)
+        }
+        // garis rata-rata
+        if (has.isNotEmpty() && !ranged) {
+            val avg = has.map { it.v!! }.average()
+            line.color = color; line.alpha = 160
+            line.pathEffect = DashPathEffect(floatArrayOf(px(4f), px(4f)), 0f)
+            c.drawLine(left, y(avg), width.toFloat(), y(avg), line)
+            line.pathEffect = null; line.alpha = 255
+        }
+        val center = Paint(text).apply { textAlign = Paint.Align.CENTER; textSize = px(10f) }
+        val bw = minOf(w * 0.6f, px(22f))
+        vals.forEachIndexed { i, dv ->
+            val cx = left + w * i + w / 2
+            val sel = dv.date == selected
+            if (sel) { fill.color = pal.grid; c.drawRoundRect(RectF(cx - w / 2 + 1, top, cx + w / 2 - 1, bottom), px(6f), px(6f), fill) }
+            val v = dv.v
+            if (v != null) {
+                fill.color = color; fill.alpha = if (sel || selected == null) 255 else 200
+                if (!ranged) {
+                    c.drawRoundRect(RectF(cx - bw / 2, y(v), cx + bw / 2, bottom), bw / 3, bw / 3, fill)
+                } else {
+                    val l = dv.lo ?: v; val h = dv.hi ?: v
+                    fill.alpha = 90
+                    c.drawRoundRect(RectF(cx - bw / 3, y(h) - px(2f), cx + bw / 3, y(l) + px(2f)), bw / 3, bw / 3, fill)
+                    fill.alpha = 255
+                    c.drawCircle(cx, y(v), px(3.5f), fill)
+                    dv.v2?.let { c.drawCircle(cx, y(it), px(3.5f), fill) }
+                }
+                fill.alpha = 255
+            }
+            // label tanggal
+            val lbl = if (vals.size <= 7) dv.date.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale("id", "ID"))
+            else if (dv.date.dayOfMonth == 1 || dv.date.dayOfMonth % 5 == 0) dv.date.dayOfMonth.toString() else ""
+            center.color = if (sel) pal.fg else pal.muted
+            if (lbl.isNotEmpty()) c.drawText(lbl, cx, height - px(5f), center)
+        }
+    }
+
+    private fun axis(v: Double): String = when {
+        metric == Metric.SLEEP -> "${(v / 60).roundToInt()}j"
+        v >= 1000 -> "%.1frb".format(v / 1000).replace(".0rb", "rb").replace('.', ',')
+        else -> v.roundToInt().toString()
+    }
+}
