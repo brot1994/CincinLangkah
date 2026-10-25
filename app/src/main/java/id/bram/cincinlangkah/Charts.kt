@@ -47,8 +47,12 @@ abstract class BaseChart(ctx: Context, protected val pal: Pal) : View(ctx) {
     protected val fill = Paint(Paint.ANTI_ALIAS_FLAG)
     protected val line = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
     abstract val hDp: Float
+    /** tinggi khusus (dp), dipakai untuk versi mini di ubin dashboard */
+    var hOverride: Float? = null
+    /** versi ringkas: tanpa label sumbu */
+    var compact = false
     override fun onMeasure(w: Int, h: Int) {
-        setMeasuredDimension(MeasureSpec.getSize(w), px(hDp).roundToInt())
+        setMeasuredDimension(MeasureSpec.getSize(w), px(hOverride ?: hDp).roundToInt())
     }
     protected fun fmtTime(ms: Long): String {
         val t = Instant.ofEpochMilli(ms).atZone(ZoneId.systemDefault())
@@ -64,8 +68,8 @@ class StepRingView(ctx: Context, pal: Pal) : BaseChart(ctx, pal) {
     var sub = ""
     override fun onDraw(c: Canvas) {
         val cx = width / 2f; val cy = height / 2f
-        val r = min(width, height) / 2f - px(14f)
-        val sw = px(16f)
+        val sw = if (compact) px(11f) else px(16f)
+        val r = min(width, height) / 2f - sw / 2f - px(2f)
         line.strokeWidth = sw; line.strokeCap = Paint.Cap.ROUND
         line.color = pal.track
         c.drawCircle(cx, cy, r, line)
@@ -73,12 +77,14 @@ class StepRingView(ctx: Context, pal: Pal) : BaseChart(ctx, pal) {
         line.color = pal.ring
         if (frac > 0f) c.drawArc(RectF(cx - r, cy - r, cx + r, cy + r), -90f, 360f * frac, false, line)
         val big = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = pal.fg; textSize = px(44f); typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.CENTER
+            color = pal.fg; textSize = r * 0.42f; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.CENTER
         }
-        c.drawText("%,d".format(steps.roundToInt()).replace(',', '.'), cx, cy + px(12f), big)
-        val small = Paint(text).apply { textAlign = Paint.Align.CENTER; textSize = px(13f) }
-        c.drawText("langkah", cx, cy - px(34f), small)
-        c.drawText(sub, cx, cy + px(40f), small)
+        val n = "%,d".format(steps.roundToInt()).replace(',', '.')
+        if (big.measureText(n) > r * 1.5f) big.textSize *= r * 1.5f / big.measureText(n)
+        c.drawText(n, cx, cy + big.textSize * 0.35f, big)
+        val small = Paint(text).apply { textAlign = Paint.Align.CENTER; textSize = r * 0.16f }
+        c.drawText("langkah", cx, cy - r * 0.38f, small)
+        if (sub.isNotEmpty()) c.drawText(sub, cx, cy + r * 0.55f, small)
     }
 }
 
@@ -89,7 +95,9 @@ class HourBarsView(ctx: Context, pal: Pal) : BaseChart(ctx, pal) {
     var phone = DoubleArray(24)
     var nowHour = -1
     override fun onDraw(c: Canvas) {
-        val left = px(30f); val bottom = height - px(20f); val top = px(8f)
+        val left = if (compact) 0f else px(30f)
+        val bottom = if (compact) height.toFloat() else height - px(20f)
+        val top = if (compact) px(2f) else px(8f)
         val w = (width - left) / 24f
         val maxV = max(100.0, max(ring.maxOrNull() ?: 0.0, phone.maxOrNull() ?: 0.0))
         val nice = niceCeil(maxV)
@@ -97,8 +105,9 @@ class HourBarsView(ctx: Context, pal: Pal) : BaseChart(ctx, pal) {
         line.strokeWidth = px(1f); line.color = pal.grid
         for (i in 0..2) {
             val y = bottom - (bottom - top) * i / 2f
+            if (compact && i != 0) continue
             c.drawLine(left, y, width.toFloat(), y, line)
-            c.drawText(short(nice * i / 2), 0f, y + px(4f), text)
+            if (!compact) c.drawText(short(nice * i / 2), 0f, y + px(4f), text)
         }
         val bw = w * 0.36f
         for (h in 0 until 24) {
@@ -114,7 +123,7 @@ class HourBarsView(ctx: Context, pal: Pal) : BaseChart(ctx, pal) {
             }
             bar(ring[h], w * 0.12f, pal.ring)
             bar(phone[h], w * 0.12f + bw, pal.phone)
-            if (h % 6 == 0) c.drawText("%02d".format(h), x, height - px(4f), text)
+            if (!compact && h % 6 == 0) c.drawText("%02d".format(h), x, height - px(4f), text)
         }
     }
 }
@@ -125,12 +134,13 @@ class SleepView(ctx: Context, pal: Pal) : BaseChart(ctx, pal) {
     var segs: List<Ycbt.SleepSeg> = emptyList()
     override fun onDraw(c: Canvas) {
         if (segs.isEmpty()) {
-            c.drawText("Belum ada data tidur", 0f, px(30f), text); return
+            if (!compact) c.drawText("Belum ada data tidur", 0f, px(30f), text); return
         }
         val s0 = segs.first().startMs
         val s1 = segs.maxOf { it.startMs + it.durSec * 1000L }
         val span = max(1L, s1 - s0).toFloat()
-        val top = px(6f); val bh = px(36f)
+        val top = if (compact) 0f else px(6f)
+        val bh = if (compact) height.toFloat() else px(36f)
         for (s in segs) {
             val x0 = width * (s.startMs - s0) / span
             val x1 = width * (s.startMs + s.durSec * 1000L - s0) / span
@@ -139,6 +149,7 @@ class SleepView(ctx: Context, pal: Pal) : BaseChart(ctx, pal) {
             val inset = when (s.stage) { 1 -> 0f; 3 -> bh * 0.2f; 2 -> bh * 0.35f; else -> bh * 0.55f }
             c.drawRect(x0, top + inset, max(x1, x0 + 1f), top + bh, fill)
         }
+        if (compact) return
         c.drawText(fmtTime(s0), 0f, height - px(6f), text)
         val endTxt = fmtTime(s1)
         c.drawText(endTxt, width - text.measureText(endTxt), height - px(6f), text)
@@ -155,12 +166,14 @@ class HeartView(ctx: Context, pal: Pal) : BaseChart(ctx, pal) {
     var dayStart = 0L
     override fun onDraw(c: Canvas) {
         val all = pts + watch
-        if (all.isEmpty()) { c.drawText("Belum ada data detak jantung", 0f, px(30f), text); return }
-        val left = px(26f); val top = px(8f); val bottom = height - px(18f)
+        if (all.isEmpty()) { if (!compact) c.drawText("Belum ada data detak jantung", 0f, px(30f), text); return }
+        val left = if (compact) 0f else px(26f)
+        val top = px(4f)
+        val bottom = if (compact) height - px(4f) else height - px(18f)
         val lo = ((all.minOf { it.hr } - 5) / 10) * 10
         val hi = ((all.maxOf { it.hr } + 14) / 10) * 10
         line.strokeWidth = px(1f); line.color = pal.grid
-        for (v in listOf(lo, hi)) {
+        if (!compact) for (v in listOf(lo, hi)) {
             val y = bottom - (bottom - top) * (v - lo) / (hi - lo).toFloat()
             c.drawLine(left, y, width.toFloat(), y, line)
             c.drawText("$v", 0f, y + px(4f), text)
@@ -186,9 +199,9 @@ class HeartView(ctx: Context, pal: Pal) : BaseChart(ctx, pal) {
                 line.color = pal.ring; line.strokeWidth = px(1.6f); c.drawPath(p, line)
             }
             fill.color = pal.ring
-            for (r in pts) c.drawCircle(x(r), y(r), px(3.5f), fill)
+            for (r in pts) c.drawCircle(x(r), y(r), px(if (compact) 2.5f else 3.5f), fill)
         }
-        for (h in listOf(0, 6, 12, 18)) c.drawText("%02d".format(h), left + (width - left) * h / 24f, height - px(4f), text)
+        if (!compact) for (h in listOf(0, 6, 12, 18)) c.drawText("%02d".format(h), left + (width - left) * h / 24f, height - px(4f), text)
     }
 }
 
@@ -238,7 +251,8 @@ class WeekView(ctx: Context, pal: Pal) : BaseChart(ctx, pal) {
     }
     override fun onDraw(c: Canvas) {
         if (days.isEmpty()) return
-        val top = px(18f); val bottom = height - px(22f)
+        val top = if (compact) px(2f) else px(18f)
+        val bottom = height - if (compact) px(14f) else px(22f)
         val maxV = max(goal.toDouble(), days.maxOf { it.second }) * 1.05
         val w = width / days.size.toFloat()
         // garis target
@@ -254,8 +268,12 @@ class WeekView(ctx: Context, pal: Pal) : BaseChart(ctx, pal) {
             fill.color = if (d == selected) pal.ring else pal.track
             if (v >= 0.5) c.drawRoundRect(RectF(x + w * 0.2f, y, x + w * 0.8f, bottom), px(4f), px(4f), fill)
             center.color = if (d == selected) pal.fg else pal.muted
-            c.drawText(d.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale("id", "ID")), x + w / 2, height - px(5f), center)
-            if (v >= 0.5) c.drawText(short(v), x + w / 2, y - px(4f), center)
+            val dn = d.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale("id", "ID"))
+            if (compact) { center.textSize = px(9f); c.drawText(dn.take(1), x + w / 2, height - px(2f), center) }
+            else {
+                c.drawText(dn, x + w / 2, height - px(5f), center)
+                if (v >= 0.5) c.drawText(short(v), x + w / 2, y - px(4f), center)
+            }
         }
     }
 }

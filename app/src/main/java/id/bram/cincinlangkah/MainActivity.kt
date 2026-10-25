@@ -73,6 +73,21 @@ class MainActivity : AppCompatActivity() {
     private lateinit var heartBig: TextView
     private lateinit var heartView: HeartView
     private lateinit var week: WeekView
+    private lateinit var scroll: ScrollView
+    private lateinit var statGoal: TextView
+    private lateinit var miniHour: HourBarsView
+    private lateinit var miniSleep: SleepView
+    private lateinit var miniHeart: HeartView
+    private lateinit var miniWeek: WeekView
+    private lateinit var tSleep: BigTile
+    private lateinit var tHeart: BigTile
+    private lateinit var tEx: BigTile
+    private lateinit var tWeek: BigTile
+    private lateinit var cardHour: View
+    private lateinit var cardEx: View
+    private lateinit var cardSleep: View
+    private lateinit var cardHeart: View
+    private lateinit var cardWeek: View
     private lateinit var exBox: LinearLayout
     private class Tile(val value: TextView, val sub: TextView, val spark: SparkView)
     private lateinit var tSpo2: Tile
@@ -149,7 +164,7 @@ class MainActivity : AppCompatActivity() {
         if (!hasBtPerms()) { pendingSync = { doSync() }; basePerms.launch(btPermList()); return }
         val a = addr.text.toString().trim().uppercase()
         prefs.edit().putString("addr", a).apply()
-        syncBtn.text = "Batalkan"
+        syncBtn.text = "✕"
         status.text = "Menyambung ke cincin…"
         lifecycleScope.launch { PhoneSteps.sample(this@MainActivity, "sebelum sinkron") }
         SyncWorker.running = true
@@ -157,7 +172,7 @@ class MainActivity : AppCompatActivity() {
             runOnUiThread {
                 ring = null
                 SyncWorker.running = false
-                syncBtn.text = "Sinkron sekarang"
+                syncBtn.text = "⟳"
                 if (!ok) toast(summary)
                 updateStatus(if (ok) null else "✖ $summary")
                 refresh()
@@ -197,12 +212,11 @@ class MainActivity : AppCompatActivity() {
         val parts = ArrayList<String>()
         if (err != null) parts += err
         val last = prefs.getLong("last_sync", 0)
-        parts += if (last == 0L) "Belum pernah sinkron"
-        else "Sinkron terakhir " + (if (System.currentTimeMillis() - last < 20 * 3_600_000L) tf else df).format(Date(last))
+        parts += if (last == 0L) "belum sinkron"
+        else "⟳ " + (if (System.currentTimeMillis() - last < 20 * 3_600_000L) tf else df).format(Date(last))
         val bat = prefs.getInt("baterai", -1)
-        if (bat >= 0) parts += "baterai cincin $bat%"
-        parts += "otomatis tiap ±1 jam"
-        status.text = parts.joinToString(" · ")
+        if (bat >= 0) parts += "💍 $bat%"
+        status.text = parts.joinToString("  ·  ")
     }
 
     // ---------------- data ----------------
@@ -251,12 +265,16 @@ class MainActivity : AppCompatActivity() {
         val goal = prefs.getInt("goal", 10_000)
         stepRing.steps = day.total
         stepRing.goal = goal
-        stepRing.sub = "target ${fmtN(goal.toDouble())} · ${(day.total * 100 / goal).roundToInt()}%"
+        stepRing.sub = ""
         stepRing.invalidate()
-        statKm.text = "%.2f\nkm".format(Locale("id", "ID"), day.distKm)
-        statKcal.text = "${day.kcal.roundToInt()}\nkkal"
+        statGoal.text = "Target ${fmtN(goal.toDouble())} · ${(day.total * 100 / goal).roundToInt()}%"
+        statKcal.text = "🔥  ${day.kcal.roundToInt()} kkal"
+        statKm.text = "📍  " + "%.2f km".format(Locale("id", "ID"), day.distKm)
         val ringT = day.ring.sum(); val phoneT = day.phoneBest.sum()
-        statSrc.text = "${fmtN(ringT)} / ${fmtN(phoneT)}\ncincin / HP"
+        statSrc.text = "💍 ${fmtN(ringT)}   📱 ${fmtN(phoneT)}"
+        miniHour.ring = day.ring; miniHour.phone = day.phoneBest
+        miniHour.nowHour = if (day.date == LocalDate.now()) java.time.LocalTime.now().hour else -1
+        miniHour.invalidate()
 
         val isToday = day.date == LocalDate.now()
         hourBars.ring = day.ring; hourBars.phone = day.phoneBest
@@ -272,6 +290,10 @@ class MainActivity : AppCompatActivity() {
         fun stageMin(st: Int) = segs.filter { it.stage == st }.sumOf { it.durSec } / 60
         sleepBig.text = if (tot > 0) "${tot / 60} j ${tot % 60} m" + (if (useWatch) "  ⌚" else "  💍") else "–"
         sleepView.segs = segs; sleepView.invalidate()
+        miniSleep.segs = segs; miniSleep.invalidate()
+        tSleep.value.text = if (tot > 0) "${tot / 60}j ${tot % 60}m" else "–"
+        tSleep.sub.text = if (tot > 0) "nyenyak ${hm(stageMin(1))} · REM ${hm(stageMin(3))}" + (if (useWatch) " ⌚" else " 💍")
+            else "belum ada data"
         sleepLegend.text = if (segs.isEmpty()) ""
         else "● Nyenyak ${hm(stageMin(1))}   ● Ringan ${hm(stageMin(2))}   ● REM ${hm(stageMin(3))}   ● Terjaga ${hm(stageMin(4))}" +
             "\nSumber: " + (if (useWatch) "jam" else "cincin") +
@@ -284,18 +306,25 @@ class MainActivity : AppCompatActivity() {
             "${hr.last().hr} bpm   ·   ${hr.minOf { it.hr }}–${hr.maxOf { it.hr }}"
         heartView.pts = day.heart; heartView.watch = wHr
         heartView.dayStart = Report.dayStart(day.date); heartView.invalidate()
+        miniHeart.pts = day.heart; miniHeart.watch = wHr
+        miniHeart.dayStart = Report.dayStart(day.date); miniHeart.invalidate()
+        tHeart.value.text = if (hr.isEmpty()) "–" else "${hr.last().hr} bpm"
+        tHeart.sub.text = if (hr.isEmpty()) "belum ada data" else "${hr.minOf { it.hr }}–${hr.maxOf { it.hr }} hari ini"
 
         week.days = wk; week.goal = goal; week.selected = day.date; week.invalidate()
+        miniWeek.days = wk; miniWeek.goal = goal; miniWeek.selected = day.date; miniWeek.invalidate()
+        val active = wk.filter { it.second >= 0.5 }
+        tWeek.value.text = if (active.isEmpty()) "–" else fmtShort(active.map { it.second }.average())
+        tWeek.sub.text = "rata² per hari"
 
         val ds = Report.dayStart(day.date)
         fun fill(t: Tile, list: List<Ycbt.Vital>, unit: String, two: Boolean = false) {
-            if (list.isEmpty()) { t.value.text = "–"; t.sub.text = "belum ada data"; t.spark.a = emptyList(); t.spark.b = emptyList() }
+            if (list.isEmpty()) { t.value.text = "–"; t.sub.text = "belum ada"; t.spark.a = emptyList(); t.spark.b = emptyList() }
             else {
                 val last = list.last()
                 t.value.text = (if (two) "${last.v1}/${last.v2}" else "${last.v1}") + unit
                 val tf = SimpleDateFormat("HH:mm", Locale.US).format(Date(last.tsMs))
-                t.sub.text = if (two) "$tf · ${list.size}× hari ini"
-                else "$tf · ${list.minOf { it.v1 }}–${list.maxOf { it.v1 }}"
+                t.sub.text = if (two || list.size < 2) tf else "${list.minOf { it.v1 }}–${list.maxOf { it.v1 }} · $tf"
                 t.spark.a = list.map { it.tsMs to it.v1 }
                 t.spark.b = if (two) list.map { it.tsMs to it.v2 } else emptyList()
             }
@@ -303,8 +332,8 @@ class MainActivity : AppCompatActivity() {
         }
         fill(tSpo2, (day.spo2 + (watch?.spo2 ?: emptyList())).sortedBy { it.tsMs }, "%")
         fill(tBp, day.bp, "", two = true)
-        fill(tHrv, day.hrv, " ms")
-        fill(tResp, day.resp, "/mnt")
+        fill(tHrv, day.hrv, "")
+        fill(tResp, day.resp, "")
 
         renderExercise(day)
         renderTable(day)
@@ -314,6 +343,16 @@ class MainActivity : AppCompatActivity() {
         exBox.removeAllViews()
         val from = Report.dayStart(day.date)
         val ws = lastWatch?.sessions ?: emptyList()
+        run {
+            val autos = Db.get(this).exercises(from, from + 86_400_000L)
+                .filter { e -> ws.none { it.start < e.end && it.end > e.start } }
+            val all = autos.map { Triple(it.start, it.end, Exercise.label(it.type)) } + ws.map { Triple(it.start, it.end, it.label) }
+            val mins = all.sumOf { ((it.second - it.first) / 60_000L).toInt() }
+            tEx.value.text = if (all.isEmpty()) "–" else "$mins menit"
+            tEx.sub.text = if (all.isEmpty()) "belum ada hari ini"
+                else all.maxBy { it.first }.let { "${it.third} · ${SimpleDateFormat("HH:mm", Locale.US).format(Date(it.first))}" } +
+                    if (all.size > 1) " (+${all.size - 1})" else ""
+        }
         // sesi deteksi otomatis yang bertumpuk dengan sesi dari jam disembunyikan (jam lebih akurat)
         val list = Db.get(this).exercises(from, from + 86_400_000L)
             .filter { e -> ws.none { it.start < e.end && it.end > e.start } }
@@ -381,6 +420,8 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun fmtShort(v: Double) = if (v >= 1000) "%.1frb".format(Locale("id", "ID"), v / 1000) else fmtN(v)
+
     private fun hm(min: Int) = if (min >= 60) "${min / 60}j${min % 60}m" else "${min}m"
     private fun fmtN(v: Double) = "%,d".format(v.roundToInt()).replace(',', '.')
 
@@ -433,53 +474,98 @@ class MainActivity : AppCompatActivity() {
         window.statusBarColor = pal.bg
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(px(14), px(14), px(14), px(28))
+            setPadding(px(14), px(8), px(14), px(28))
             setBackgroundColor(pal.bg)
         }
 
-        // Judul + navigasi tanggal
+        // ===== HEADER: ‹ tanggal › + tombol sinkron =====
         val head = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         head.addView(navBtn("‹") { date = date.minusDays(1); refresh() })
-        dateLbl = TextView(this).apply {
-            textSize = 20f; setTextColor(pal.fg); typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER
+        val headMid = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER
             layoutParams = LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f)
             setOnClickListener { date = LocalDate.now(); refresh() }
         }
-        head.addView(dateLbl)
-        head.addView(navBtn("›") { if (date < LocalDate.now()) { date = date.plusDays(1); refresh() } })
-        root.addView(head)
-        status = TextView(this).apply {
-            textSize = 12f; setTextColor(pal.muted); gravity = Gravity.CENTER; setPadding(0, px(2), 0, px(10))
+        dateLbl = TextView(this).apply {
+            textSize = 19f; setTextColor(pal.fg); typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER
         }
-        root.addView(status)
+        status = TextView(this).apply { textSize = 11f; setTextColor(pal.muted); gravity = Gravity.CENTER; maxLines = 1 }
+        headMid.addView(dateLbl); headMid.addView(status)
+        head.addView(headMid)
+        head.addView(navBtn("›") { if (date < LocalDate.now()) { date = date.plusDays(1); refresh() } })
+        syncBtn = Button(this).apply {
+            text = "⟳"; textSize = 20f; isAllCaps = false; setTextColor(Color.WHITE); setPadding(0, 0, 0, 0)
+            background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(pal.ring) }
+            layoutParams = LinearLayout.LayoutParams(px(40), px(40)).apply { marginStart = px(4) }
+            setOnClickListener { doSync() }
+        }
+        head.addView(syncBtn)
+        root.addView(head, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { bottomMargin = px(10) })
         updateStatus()
 
-        // Kartu langkah
-        val c1 = card(root)
-        stepRing = StepRingView(this, pal)
-        c1.addView(stepRing)
-        val stats = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, px(6), 0, 0) }
-        statKm = stat(stats); statKcal = stat(stats); statSrc = stat(stats)
-        c1.addView(stats)
+        // ===== HERO: cincin progres + ringkasan + grafik per jam mini =====
+        val hero = card(root, tint = pal.ring, pad = 12)
+        val heroTop = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        stepRing = StepRingView(this, pal).apply {
+            compact = true; hOverride = 118f
+            layoutParams = LinearLayout.LayoutParams(px(118), px(118))
+        }
+        heroTop.addView(stepRing)
+        val heroRight = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(px(14), 0, 0, 0)
+            layoutParams = LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f)
+        }
+        statGoal = TextView(this).apply { textSize = 13f; setTextColor(pal.muted) }
+        statKcal = heroLine(heroRight); statKm = heroLine(heroRight); statSrc = heroLine(heroRight)
+        heroRight.addView(statGoal, 0)
+        heroTop.addView(heroRight)
+        hero.addView(heroTop)
+        miniHour = HourBarsView(this, pal).apply { compact = true; hOverride = 34f }
+        hero.addView(miniHour, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { topMargin = px(8) })
 
-        // Per jam
+        // ===== UBIN 2×2 =====
+        val g1 = row(); val g2 = row()
+        root.addView(g1, rowLp()); root.addView(g2, rowLp())
+        tSleep = bigTile(g1, "🌙 Tidur", pal.deep)
+        miniSleep = SleepView(this, pal).apply { compact = true; hOverride = 18f }
+        tSleep.box.addView(miniSleep, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { topMargin = px(6) })
+        tHeart = bigTile(g1, "❤ Detak jantung", pal.heart, last = true)
+        miniHeart = HeartView(this, pal).apply { compact = true; hOverride = 30f }
+        tHeart.box.addView(miniHeart)
+        tEx = bigTile(g2, "🏓 Olahraga", pal.bp)
+        tWeek = bigTile(g2, "📅 7 hari", pal.ring, last = true)
+        miniWeek = WeekView(this, pal).apply { compact = true; hOverride = 34f; onPick = { d -> date = d; refresh() } }
+        tWeek.box.addView(miniWeek)
+
+        // ===== TANDA VITAL: 4 ubin sebaris =====
+        val vr = row()
+        root.addView(vr, rowLp())
+        tSpo2 = tile(vr, "SpO₂", pal.spo2)
+        tBp = tile(vr, "Tensi", pal.bp)
+        tHrv = tile(vr, "HRV", pal.hrv)
+        tResp = tile(vr, "Napas", pal.resp, last = true)
+
+        // ===== DETAIL (di bawah lipatan) =====
+        root.addView(section("Detail"))
         val c2 = card(root)
+        cardHour = c2
         c2.addView(title("Langkah per jam"))
         hourBars = HourBarsView(this, pal)
         c2.addView(hourBars)
-        c2.addView(legend(listOf(pal.ring to "Cincin", pal.phone to "HP / Samsung Health")))
-        c2.addView(note("Total di atas = gabungan: tiap jam diambil yang lebih besar, karena masing-masing bisa terlewat " +
+        c2.addView(legend(listOf(pal.ring to "Cincin", pal.phone to "HP")))
+        c2.addView(note("Total langkah = gabungan: tiap jam diambil yang lebih besar, karena masing-masing bisa terlewat " +
             "(HP ditinggal di meja, atau tangan diam saat jalan)."))
 
-        // Olahraga
         val ce = card(root)
+        cardEx = ce
         ce.addView(title("Olahraga"))
         exBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         ce.addView(exBox)
         ce.addView(note("Direkam otomatis setelah ≥5 menit aktif berturut-turut. Ketuk jenisnya kalau tebakan salah."))
 
-        // Tidur
         val c3 = card(root)
+        cardSleep = c3
         c3.addView(title("Tidur"))
         sleepBig = big(c3)
         sleepView = SleepView(this, pal)
@@ -487,37 +573,30 @@ class MainActivity : AppCompatActivity() {
         sleepLegend = note("")
         c3.addView(sleepLegend)
 
-        // Detak jantung
         val c4 = card(root)
+        cardHeart = c4
         c4.addView(title("Detak jantung"))
         heartBig = big(c4)
         heartView = HeartView(this, pal)
         c4.addView(heartView)
         c4.addView(legend(listOf(pal.ring to "Cincin (titik)", pal.heart to "Jam (garis)")))
 
-        // Tanda vital
-        val cv = card(root)
-        cv.addView(title("Tanda vital"))
-        val r1 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        val r2 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, px(12), 0, 0) }
-        tSpo2 = tile(r1, "SpO₂", pal.spo2)
-        tBp = tile(r1, "Tekanan darah", pal.bp)
-        tHrv = tile(r2, "HRV", pal.hrv)
-        tResp = tile(r2, "Laju napas", pal.resp)
-        cv.addView(r1); cv.addView(r2)
-        cv.addView(note("Diukur otomatis oleh cincin (sensor cahaya). Tekanan darah & SpO₂ dari cincin adalah " +
-            "perkiraan, bukan pengganti alat medis."))
-
-        // Mingguan
         val c5 = card(root)
+        cardWeek = c5
         c5.addView(title("7 hari terakhir"))
         week = WeekView(this, pal).apply { onPick = { d -> date = d; refresh() } }
         c5.addView(week)
         c5.addView(note("Ketuk batang untuk membuka hari itu. Garis putus-putus = target."))
+        c5.addView(note("Tanda vital diukur otomatis oleh cincin/jam (sensor cahaya). Tensi & SpO₂ dari cincin adalah " +
+            "perkiraan, bukan pengganti alat medis."))
 
-        // Tombol
-        syncBtn = bigButton("Sinkron sekarang", primary = true) { doSync() }
-        root.addView(syncBtn)
+        // tap ubin → gulir ke detailnya
+        tSleep.box.setOnClickListener { scrollToCard(cardSleep) }
+        tHeart.box.setOnClickListener { scrollToCard(cardHeart) }
+        tEx.box.setOnClickListener { scrollToCard(cardEx) }
+        miniHour.setOnClickListener { scrollToCard(cardHour) }
+        hero.setOnClickListener { scrollToCard(cardHour) }
+
         hcBtn = bigButton("Hubungkan Samsung Health (Health Connect)", primary = false) { doHc() }
         root.addView(hcBtn)
 
@@ -573,30 +652,66 @@ class MainActivity : AppCompatActivity() {
         c7.addView(logView)
         root.addView(settingsBox)
 
-        setContentView(ScrollView(this).apply { addView(root); setBackgroundColor(pal.bg) })
+        scroll = ScrollView(this).apply { addView(root); setBackgroundColor(pal.bg) }
+        setContentView(scroll)
     }
 
-    private fun card(parent: LinearLayout): LinearLayout {
+    private fun tinted(color: Int?) = if (color == null) pal.card
+        else androidx.core.graphics.ColorUtils.blendARGB(pal.card, color, if (night) 0.16f else 0.10f)
+
+    private fun card(parent: LinearLayout, tint: Int? = null, pad: Int = 14): LinearLayout {
         val c = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(px(14), px(12), px(14), px(12))
-            background = GradientDrawable().apply { cornerRadius = px(16).toFloat(); setColor(pal.card) }
-            elevation = if (night) 0f else px(1).toFloat()
+            setPadding(px(pad), px(12), px(pad), px(12))
+            background = GradientDrawable().apply { cornerRadius = px(20).toFloat(); setColor(tinted(tint)) }
         }
-        parent.addView(c, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { bottomMargin = px(12) })
+        parent.addView(c, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { bottomMargin = px(10) })
         return c
     }
 
-    private fun tile(row: LinearLayout, label: String, color: Int): Tile {
+    private fun row() = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+    private fun rowLp() = LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { bottomMargin = px(10) }
+
+    private class BigTile(val box: LinearLayout, val value: TextView, val sub: TextView)
+
+    private fun bigTile(row: LinearLayout, label: String, color: Int, last: Boolean = false): BigTile {
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            layoutParams = LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f).apply { marginEnd = px(10) }
+            setPadding(px(12), px(10), px(12), px(10))
+            background = GradientDrawable().apply { cornerRadius = px(20).toFloat(); setColor(tinted(color)) }
+            layoutParams = LinearLayout.LayoutParams(0, px(112), 1f).apply { if (!last) marginEnd = px(10) }
         }
         box.addView(TextView(this).apply { text = label; textSize = 12f; setTextColor(color); typeface = Typeface.DEFAULT_BOLD })
-        val v = TextView(this).apply { textSize = 22f; setTextColor(pal.fg); typeface = Typeface.DEFAULT_BOLD }
-        val sub = TextView(this).apply { textSize = 11f; setTextColor(pal.muted) }
-        val sp = SparkView(this, pal).apply { this.color = color }
-        box.addView(v); box.addView(sub); box.addView(sp)
+        val v = TextView(this).apply { textSize = 21f; setTextColor(pal.fg); typeface = Typeface.DEFAULT_BOLD; maxLines = 1 }
+        val sub = TextView(this).apply { textSize = 11f; setTextColor(pal.muted); maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }
+        box.addView(v); box.addView(sub)
+        row.addView(box)
+        return BigTile(box, v, sub)
+    }
+
+    private fun heroLine(parent: LinearLayout) = TextView(this).apply {
+        textSize = 14f; setTextColor(pal.fg); setPadding(0, px(3), 0, 0); maxLines = 1
+    }.also { parent.addView(it) }
+
+    private fun section(t: String) = TextView(this).apply {
+        text = t; textSize = 13f; setTextColor(pal.muted); typeface = Typeface.DEFAULT_BOLD
+        setPadding(px(4), px(10), 0, px(8))
+    }
+
+    private fun scrollToCard(v: View) { scroll.post { scroll.smoothScrollTo(0, v.top - px(8)) } }
+
+    private fun tile(row: LinearLayout, label: String, color: Int, last: Boolean = false): Tile {
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(px(10), px(8), px(10), px(8))
+            background = GradientDrawable().apply { cornerRadius = px(18).toFloat(); setColor(tinted(color)) }
+            layoutParams = LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f).apply { if (!last) marginEnd = px(8) }
+        }
+        box.addView(TextView(this).apply { text = label; textSize = 11f; setTextColor(color); typeface = Typeface.DEFAULT_BOLD })
+        val v = TextView(this).apply { textSize = 17f; setTextColor(pal.fg); typeface = Typeface.DEFAULT_BOLD; maxLines = 1 }
+        val sub = TextView(this).apply { textSize = 10f; setTextColor(pal.muted); maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }
+        val sp = SparkView(this, pal).apply { this.color = color; hOverride = 20f }
+        box.addView(v); box.addView(sp); box.addView(sub)
         row.addView(box)
         return Tile(v, sub, sp)
     }
@@ -640,8 +755,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun navBtn(t: String, onClick: () -> Unit) = TextView(this).apply {
-        text = t; textSize = 30f; setTextColor(pal.ring); gravity = Gravity.CENTER
-        layoutParams = LinearLayout.LayoutParams(px(48), px(48))
+        text = t; textSize = 28f; setTextColor(pal.ring); gravity = Gravity.CENTER
+        layoutParams = LinearLayout.LayoutParams(px(36), px(44))
         setOnClickListener { onClick() }
     }
 
