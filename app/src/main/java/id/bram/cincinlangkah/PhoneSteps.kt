@@ -73,6 +73,7 @@ class StepWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
         val ctx = applicationContext
         PhoneSteps.sample(ctx, "latar")
         try { Program.remind(ctx) } catch (_: Exception) {}
+        try { Coach.remind(ctx) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) {}
         // Cek olahraga tiap 15 menit; kalau sedang berlangsung, ukur HR live dari cincin
         val ongoing = try { Exercise.detect(ctx) } catch (e: Exception) { AppLog.d("Deteksi olahraga error: ${e.message}"); false }
         if (ongoing) {

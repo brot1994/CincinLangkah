@@ -484,3 +484,25 @@ class WeightChartView(ctx: Context, pal: Pal) : BaseChart(ctx, pal) {
         c.drawText("target ${wT.roundToInt()}", right, y(wT) - px(4f), tl)
     }
 }
+
+/** Lingkaran skor (0..1) dengan angka di tengah, untuk halaman Pelatih. */
+class GaugeView(ctx: Context, pal: Pal) : BaseChart(ctx, pal) {
+    override val hDp = 96f
+    var frac: Float? = null
+    var label = ""
+    var center = "–"
+    var color = pal.ring
+    override fun onDraw(c: Canvas) {
+        val sw = px(8f)
+        val r = min(width, height) / 2f - sw / 2f - px(2f)
+        val cx = width / 2f; val cy = height / 2f
+        val box = RectF(cx - r, cy - r, cx + r, cy + r)
+        line.strokeWidth = sw; line.strokeCap = Paint.Cap.ROUND; line.pathEffect = null
+        line.color = pal.track; c.drawArc(box, 0f, 360f, false, line)
+        frac?.let { line.color = color; c.drawArc(box, -90f, 360f * it.coerceIn(0.01f, 1f), false, line) }
+        val t = Paint(text).apply { textAlign = Paint.Align.CENTER; color = pal.fg; textSize = px(19f); typeface = Typeface.DEFAULT_BOLD }
+        c.drawText(center, cx, cy + px(5f), t)
+        val l = Paint(text).apply { textAlign = Paint.Align.CENTER; textSize = px(9.5f) }
+        c.drawText(label, cx, cy + px(19f), l)
+    }
+}

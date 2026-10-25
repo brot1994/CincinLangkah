@@ -99,6 +99,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var table: LinearLayout
     private lateinit var progTitle: TextView
     private lateinit var progSub: TextView
+    private lateinit var coachTitle: TextView
+    private lateinit var coachSub: TextView
+    private var coachAt = 0L
     private lateinit var tableBox: LinearLayout
     private lateinit var settingsBox: LinearLayout
     private lateinit var addr: EditText
@@ -261,6 +264,13 @@ class MainActivity : AppCompatActivity() {
                 Report.build(this@MainActivity, d, hc) to Report.week(this@MainActivity, d, weekHc)
             }
             if (d == date) render(day, wk, watch)
+            if (d == LocalDate.now() && System.currentTimeMillis() - coachAt > 3 * 60_000L) try {
+                val c = Coach.day(this@MainActivity, d)
+                coachAt = System.currentTimeMillis()
+                val f = { v: Double -> "%.1f".format(Locale("id", "ID"), v) }
+                coachTitle.text = "${c.zoneEmoji} Pemulihan ${c.recovery?.let { "$it%" } ?: "–"}   😴 Tidur ${c.sleepScore?.let { "$it%" } ?: "–"}   ⚡ Beban ${f(c.strain)}"
+                coachSub.text = (if (java.time.LocalTime.now().hour < 12) c.morning.getOrNull(2) ?: c.morning.first() else c.now.first())
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { coachSub.text = "Pelatih: ${e.message}" }
         }
     }
 
@@ -556,6 +566,18 @@ class MainActivity : AppCompatActivity() {
         progSub = TextView(this).apply { textSize = 11.5f; setTextColor(pal.muted); maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }
         pc.addView(progTitle); pc.addView(progSub)
         root.addView(pc, rowLp())
+
+        // ===== PELATIH (baris tipis) =====
+        val cc = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(px(14), px(9), px(14), px(9))
+            background = GradientDrawable().apply { cornerRadius = px(16).toFloat(); setColor(tinted(Color.parseColor("#9B59B6"))) }
+            setOnClickListener { CoachActivity.open(this@MainActivity) }
+        }
+        coachTitle = TextView(this).apply { text = "🧭 Pelatih"; textSize = 13.5f; setTextColor(pal.fg); typeface = Typeface.DEFAULT_BOLD; maxLines = 1 }
+        coachSub = TextView(this).apply { text = "menghitung…"; textSize = 11.5f; setTextColor(pal.muted); maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END }
+        cc.addView(coachTitle); cc.addView(coachSub)
+        root.addView(cc, rowLp())
 
         // ===== UBIN 2×2 =====
         val g1 = row(); val g2 = row()

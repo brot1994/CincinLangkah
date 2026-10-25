@@ -8,6 +8,8 @@
     <uses-permission android:name="android.permission.BLUETOOTH_SCAN" android:usesPermissionFlags="neverForLocation" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
 
+    <uses-permission android:name="android.permission.INTERNET" />
+
     <!-- Step counter HP -->
     <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
@@ -47,6 +49,7 @@
 
         <activity android:name=".DetailActivity" android:exported="false" />
         <activity android:name=".ProgramActivity" android:exported="false" />
+        <activity android:name=".CoachActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
 
         <receiver android:name=".ExerciseReceiver" android:exported="false" />
 
