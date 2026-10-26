@@ -83,7 +83,7 @@ object Daily {
         val sess = (autos.map { Triple(it.start, it.end, "${Exercise.emoji(it.type)} ${Exercise.label(it.type)}") } +
             wSess.map { Triple(it.start, it.end, "${it.type?.let { t -> Exercise.emoji(t) } ?: "🏅"} ${it.label} ⌚") })
             .sortedBy { it.first }
-        return DayDetail(rep, rep.heart, wHr, if (useW) wSleep else rep.sleep, useW, vit, sess)
+        return DayDetail(rep, rep.heart, wHr, Ycbt.withGaps(if (useW) wSleep else rep.sleep), useW, vit, sess)
     }
 
     /** Nilai ringkas satu hari untuk grafik minggu/bulan (di-cache, kecuali hari ini). */

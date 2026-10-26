@@ -22,6 +22,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.util.Locale
@@ -34,6 +35,9 @@ class CoachActivity : AppCompatActivity() {
         /** percakapan "Tanya" selama aplikasi hidup */
         private val chat = ArrayList<Pair<String, String>>()
         private var chatDate: LocalDate? = null
+        private var aiJob: kotlinx.coroutines.Deferred<String>? = null
+        private var aiJobKey = ""
+        private var aiStart = 0L
     }
 
     private val night by lazy {
@@ -122,15 +126,26 @@ class CoachActivity : AppCompatActivity() {
         val btn = smallBtn("↻ Perbarui komentar") {}
         c.addView(LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, px(8), 0, 0); addView(btn) })
         fun fetch() {
-            body.text = "Meminta komentar…"; btn.isEnabled = false
+            btn.isEnabled = false
+            // satu permintaan saja walau halaman digambar ulang
+            val job = aiJob?.takeIf { it.isActive && aiJobKey == aiKey(d.date) } ?: lifecycleScope.async {
+                Ai.ask(this@CoachActivity, Coach.aiContext(this@CoachActivity, d) +
+                    "\nTulis komentar & saran untuk hari ini, maksimal sekitar 150 kata. Mulai dari hal terpenting.")
+            }.also { aiJob = it; aiJobKey = aiKey(d.date); aiStart = System.currentTimeMillis() }
+            val ticker = lifecycleScope.launch {
+                while (true) { body.text = "Meminta komentar… ${(System.currentTimeMillis() - aiStart) / 1000} dtk"; kotlinx.coroutines.delay(1000) }
+            }
             lifecycleScope.launch {
                 try {
-                    val t = Ai.ask(this@CoachActivity, Coach.aiContext(this@CoachActivity, d) +
-                        "\nTulis komentar & saran untuk hari ini, maksimal sekitar 150 kata. Mulai dari hal terpenting.")
+                    val t = job.await()
                     cprefs.edit().putString(aiKey(d.date), t).putLong(aiKey(d.date) + "_t", System.currentTimeMillis()).apply()
-                    body.text = t; info.text = "dibuat barusan · ${Ai.model(this@CoachActivity)}"
-                } catch (e: kotlinx.coroutines.CancellationException) { throw e
-                } catch (e: Exception) { body.text = "Gagal: ${e.message}\n${Ai.explain(e.message ?: "")}\n(Komentar bawaan di atas tetap berlaku.)" }
+                    ticker.cancel()
+                    body.text = t; info.text = "dibuat barusan · ${Ai.lastModel}"
+                } catch (e: kotlinx.coroutines.CancellationException) { ticker.cancel(); throw e
+                } catch (e: Exception) {
+                    ticker.cancel()
+                    body.text = "Gagal: ${e.message}\n${Ai.explain(e.message ?: "")}\n(Komentar bawaan di atas tetap berlaku.)"
+                }
                 btn.isEnabled = true
             }
         }

@@ -17,6 +17,7 @@ object Ai {
     /** cadangan kalau model utama sedang penuh (503/429) */
     private val FALLBACK_GEMINI = listOf("gemini-flash-lite-latest", "gemini-2.5-flash")
     @Volatile var lastModel = ""
+    private val noThinkCfg = java.util.Collections.synchronizedSet(HashSet<String>())
     @Volatile private var readTimeoutMs = 60_000
 
     /** Penjelasan singkat untuk pesan error yang umum. */
@@ -88,7 +89,7 @@ Aturan:
                     }
                 }
                 val msg = last?.message ?: ""
-                if (!(msg.contains("HTTP 503") || msg.contains("HTTP 429") || msg.contains("HTTP 404") ||
+                if (!(msg.contains("HTTP 503") || msg.contains("HTTP 429") || msg.contains("HTTP 404") || msg.contains("Respons kosong") ||
                         msg.contains("timeout", true) || last is java.net.SocketTimeoutException)) break // key salah dsb: jangan ganti model
             }
             throw last ?: RuntimeException("gagal")
@@ -118,12 +119,30 @@ Aturan:
         val body = JSONObject()
             .put("systemInstruction", JSONObject().put("parts", JSONArray().put(JSONObject().put("text", SYSTEM))))
             .put("contents", contents)
-            .put("generationConfig", JSONObject().put("temperature", 0.6).put("maxOutputTokens", maxTokens * 3))
+        val gc = JSONObject().put("temperature", 0.6).put("maxOutputTokens", 4096)
+        // berpikir dibuat ringan supaya cepat (komentar harian tidak butuh penalaran panjang);
+        // model yang tidak mengenal pengaturan ini otomatis dikirim ulang tanpa pengaturan tsb.
+        val useThink = model !in noThinkCfg
+        if (useThink) gc.put("thinkingConfig", JSONObject().put("thinkingLevel", "low"))
+        body.put("generationConfig", gc)
         val url = "https://generativelanguage.googleapis.com/v1beta/models/${URLEncoder.encode(model, "UTF-8")}:generateContent"
-        val r = JSONObject(post(url, mapOf("x-goog-api-key" to key), body.toString()))
-        val parts = r.getJSONArray("candidates").getJSONObject(0).getJSONObject("content").getJSONArray("parts")
-        return (0 until parts.length()).mapNotNull { parts.getJSONObject(it).optString("text").takeIf { t -> t.isNotBlank() && !parts.getJSONObject(it).optBoolean("thought") } }
-            .joinToString("").trim()
+        val t0 = System.currentTimeMillis()
+        val raw = try { post(url, mapOf("x-goog-api-key" to key), body.toString()) } catch (e: RuntimeException) {
+            if (useThink && e.message?.contains("HTTP 400") == true && e.message?.contains("think", true) == true) {
+                noThinkCfg += model
+                return gemini(key, model, user, hist, maxTokens)
+            }
+            throw e
+        }
+        val r = JSONObject(raw)
+        val cand = r.optJSONArray("candidates")?.optJSONObject(0)
+            ?: throw RuntimeException("Respons kosong (${r.optJSONObject("promptFeedback")?.optString("blockReason") ?: "tanpa kandidat"})")
+        val parts = cand.optJSONObject("content")?.optJSONArray("parts")
+        val text = if (parts == null) "" else (0 until parts.length()).map { parts.getJSONObject(it) }
+            .filter { !it.optBoolean("thought") }.joinToString("") { it.optString("text") }.trim()
+        if (text.isEmpty()) throw RuntimeException("Respons kosong (${cand.optString("finishReason", "?")})")
+        AppLog.d("✨ $model menjawab dalam ${(System.currentTimeMillis() - t0) / 1000} dtk")
+        return text
     }
 
     private fun claude(key: String, model: String, user: String, hist: List<Pair<String, String>>, maxTokens: Int): String {

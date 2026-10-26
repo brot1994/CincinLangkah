@@ -305,7 +305,7 @@ class MainActivity : AppCompatActivity() {
         fun asleep(l: List<Ycbt.SleepSeg>) = l.filter { it.stage in 1..3 }.sumOf { it.durSec } / 60
         val wSleep = watch?.sleep ?: emptyList()
         val useWatch = asleep(wSleep) > asleep(day.sleep)
-        val segs = if (useWatch) wSleep else day.sleep
+        val segs = Ycbt.withGaps(if (useWatch) wSleep else day.sleep)
         val tot = asleep(segs)
         fun stageMin(st: Int) = segs.filter { it.stage == st }.sumOf { it.durSec } / 60
         sleepBig.text = if (tot > 0) "${tot / 60} j ${tot % 60} m" + (if (useWatch) "  ⌚" else "  💍") else "–"

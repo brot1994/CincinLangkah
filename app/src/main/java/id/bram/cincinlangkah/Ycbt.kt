@@ -160,6 +160,24 @@ object Ycbt {
     }
 
     /** Sesi: header 20 byte (panjang sesi @2), lalu segmen 8 byte [tag][start u32][durasi u24]. */
+    /**
+     * Untuk tampilan: celah > 2 menit di antara segmen tidur (mis. cincin mencatat 2 sesi terpisah)
+     * diisi sebagai "terjaga" (tahap 4), dan kode tahap lain di luar 1–3 disamakan ke 4.
+     */
+    fun withGaps(segs: List<SleepSeg>): List<SleepSeg> {
+        if (segs.isEmpty()) return segs
+        val s = segs.sortedBy { it.startMs }.map { if (it.stage in 1..4) it else it.copy(stage = 4) }
+        val out = ArrayList<SleepSeg>()
+        var end = s.first().startMs
+        for (x in s) {
+            val gap = x.startMs - end
+            if (gap > 120_000L) out += SleepSeg(end, (gap / 1000).toInt(), 4)
+            out += x
+            end = maxOf(end, x.startMs + x.durSec * 1000L)
+        }
+        return out
+    }
+
     fun parseSleep(buf: ByteArray): List<SleepSeg> {
         val out = ArrayList<SleepSeg>()
         var p = 0
