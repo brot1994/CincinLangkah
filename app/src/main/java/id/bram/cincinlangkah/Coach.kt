@@ -91,10 +91,12 @@ object Coach {
         val wake = sl.lastOrNull()?.let { it.startMs + it.durSec * 1000L }
         val awake = segs.filter { it.stage == 4 && bed != null && wake != null && it.startMs in bed..wake }
         // terbangun = segmen "terjaga" + celah > 5 menit di antara segmen tidur
-        var gaps = 0
+        var gaps = 0; var gapMin = 0L
         for (i in 1 until sl.size) {
             val prevEnd = sl[i - 1].startMs + sl[i - 1].durSec * 1000L
-            if (sl[i].startMs - prevEnd > 5 * 60_000L) gaps++
+            val g = sl[i].startMs - prevEnd
+            // celah tanpa segmen "terjaga" (mis. cincin mencatat 2 sesi tidur terpisah) = terjaga juga
+            if (g > 5 * 60_000L) { gaps++; if (awake.none { it.startMs in prevEnd until sl[i].startMs }) gapMin += g / 60_000L }
         }
         val from = bed ?: ms(d.minusDays(1), 22)
         val to = wake ?: ms(d, 7)
@@ -109,7 +111,7 @@ object Coach {
         safe { spo = spo + WatchData.spo2(ctx, from, to).map { it.v1 } }
         return Night(d, asleep(segs),
             segs.filter { it.stage == 1 }.sumOf { it.durSec } / 60, segs.filter { it.stage == 3 }.sumOf { it.durSec } / 60,
-            awake.sumOf { it.durSec } / 60, awake.size + gaps, bed, wake,
+            awake.sumOf { it.durSec } / 60 + gapMin.toInt(), awake.size + gaps, bed, wake,
             hrv.takeIf { it.isNotEmpty() }?.average(), rhr, resp.takeIf { it.isNotEmpty() }?.average(),
             spo.filter { it in 70..100 }.minOrNull(), useW)
     }
