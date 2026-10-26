@@ -45,6 +45,8 @@ class MainActivity : AppCompatActivity() {
 
     private val prefs by lazy { getSharedPreferences("cfg", MODE_PRIVATE) }
     private var date: LocalDate = LocalDate.now()
+    /** hari ini saat aplikasi terakhir dibuka — kalau sudah ganti hari, tampilan ikut pindah ke hari baru */
+    private var openedOn: LocalDate = LocalDate.now()
     private var ring: RingClient? = null
     private val hcCache = HashMap<LocalDate, DoubleArray>()
     private var lastWatch: WatchData.Day? = null
@@ -150,6 +152,12 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        val today = LocalDate.now()
+        if (openedOn != today) {
+            if (date == openedOn) date = today   // tadinya melihat "hari ini" → tetap hari ini
+            openedOn = today
+        }
+        coachAt = 0L   // skor pelatih selalu dihitung ulang saat kembali ke dashboard
         if (::status.isInitialized) { updateStatus(); refresh() }
     }
 
