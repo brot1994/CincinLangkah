@@ -126,7 +126,7 @@ class ProbeActivity : AppCompatActivity() {
 
     private fun startScan() {
         if (adapter == null || !adapter.isEnabled) { log("Bluetooth mati"); return }
-        found.clear(); list.removeAllViews()
+        found.clear(); renderList()
         scanning = true; scanBtn.text = "Berhenti memindai"
         adapter.bluetoothLeScanner?.startScan(null, ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build(), scanCb)
         main.postDelayed({ if (scanning) stopScan() }, 20_000)
@@ -138,19 +138,45 @@ class ProbeActivity : AppCompatActivity() {
         try { adapter?.bluetoothLeScanner?.stopScan(scanCb) } catch (_: Exception) {}
     }
 
+    private fun isQc(r: ScanResult) = r.scanRecord?.serviceUuids?.any {
+        it.uuid == QC_SVC || it.uuid.toString().startsWith("0000fff0") || it.uuid.toString().startsWith("6e40")
+    } == true
+
+    /** Gelang yang sedang tersambung/terpasang ke HP tidak beriklan, jadi tidak muncul di pindaian. */
+    private fun systemDevices(): List<Pair<BluetoothDevice, String>> {
+        val out = LinkedHashMap<String, Pair<BluetoothDevice, String>>()
+        try {
+            val bm = getSystemService(BLUETOOTH_SERVICE) as BluetoothManager
+            for (d in bm.getConnectedDevices(BluetoothProfile.GATT)) out[d.address] = d to "tersambung ke HP"
+            for (d in adapter?.bondedDevices ?: emptySet()) if (d.address !in out &&
+                (d.type == BluetoothDevice.DEVICE_TYPE_LE || d.type == BluetoothDevice.DEVICE_TYPE_DUAL)) out[d.address] = d to "terpasang (paired)"
+        } catch (_: Exception) {}
+        return out.values.filter { it.first.address.uppercase() != ringAddr }
+    }
+
+    private fun item(title: String, sub: String, dim: Boolean, star: Boolean, onClick: () -> Unit) = list.addView(TextView(this).apply {
+        text = "${if (star) "⭐ " else ""}$title\n$sub"
+        textSize = 14f; setTextColor(if (dim) pal.muted else pal.fg); setPadding(px(12), px(8), px(12), px(8))
+        background = GradientDrawable().apply { cornerRadius = px(12).toFloat(); setColor(if (star) androidx.core.graphics.ColorUtils.blendARGB(pal.card, pal.ring, 0.15f) else pal.card) }
+        layoutParams = LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { bottomMargin = px(6) }
+        setOnClickListener { stopScan(); onClick() }
+    })
+
     private fun renderList() {
         list.removeAllViews()
-        val items = found.values.sortedWith(compareBy<ScanResult> { it.scanRecord?.deviceName.isNullOrBlank() }.thenByDescending { it.rssi })
+        val sys = systemDevices()
+        if (sys.isNotEmpty()) {
+            list.addView(note("Tersambung / terpasang di HP (gelang yang sedang tersambung tidak terlihat di pindaian):"))
+            for ((d, why) in sys) item(d.name ?: "(tanpa nama)", "${d.address} · $why", false, true) { connectDevice(d, null) }
+            list.addView(note("Hasil pindaian:"))
+        }
+        val items = found.values.sortedWith(compareByDescending<ScanResult> { isQc(it) }
+            .thenBy { it.scanRecord?.deviceName.isNullOrBlank() }.thenByDescending { it.rssi })
         for (r in items) {
             val name = r.scanRecord?.deviceName ?: r.device.name ?: "(tanpa nama)"
             val isRing = r.device.address.uppercase() == ringAddr
-            list.addView(TextView(this).apply {
-                text = "${if (isRing) "💍 " else ""}$name\n${r.device.address} · ${r.rssi} dBm"
-                textSize = 14f; setTextColor(if (isRing) pal.muted else pal.fg); setPadding(px(12), px(8), px(12), px(8))
-                background = GradientDrawable().apply { cornerRadius = px(12).toFloat(); setColor(pal.card) }
-                layoutParams = LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { bottomMargin = px(6) }
-                setOnClickListener { stopScan(); connect(r) }
-            })
+            val uu = r.scanRecord?.serviceUuids?.joinToString { it.uuid.toString().take(8) }?.let { " · $it" } ?: ""
+            item("${if (isRing) "💍 " else ""}$name", "${r.device.address} · ${r.rssi} dBm$uu", isRing, isQc(r)) { connect(r) }
         }
     }
 
@@ -173,9 +199,15 @@ class ProbeActivity : AppCompatActivity() {
         log("Iklan (raw): ${hex(rec?.bytes?.let { b -> b.copyOf(minOf(b.size, 62)) })}")
         rec?.serviceUuids?.let { log("UUID diiklankan: ${it.joinToString()}") }
         rec?.manufacturerSpecificData?.let { m -> for (i in 0 until m.size()) log("Data pabrikan 0x%04x: %s".format(m.keyAt(i), hex(m.valueAt(i)))) }
+        connectDevice(r.device, r)
+    }
+
+    private fun connectDevice(d: BluetoothDevice, r: ScanResult?) {
+        gatt?.close()
+        if (r == null) log("════════ ${d.name} ${d.address} (sudah tersambung/terpasang di HP)")
         log("Menyambung…")
-        getSharedPreferences("cfg", MODE_PRIVATE).edit().putString("band_addr", r.device.address).apply()
-        gatt = if (Build.VERSION.SDK_INT >= 23) r.device.connectGatt(this, false, cb, BluetoothDevice.TRANSPORT_LE) else r.device.connectGatt(this, false, cb)
+        getSharedPreferences("cfg", MODE_PRIVATE).edit().putString("band_addr", d.address).apply()
+        gatt = if (Build.VERSION.SDK_INT >= 23) d.connectGatt(this, false, cb, BluetoothDevice.TRANSPORT_LE) else d.connectGatt(this, false, cb)
     }
 
     private val cb = object : BluetoothGattCallback() {
