@@ -191,6 +191,11 @@ class MainActivity : AppCompatActivity() {
                 if (!ok) toast(summary)
                 updateStatus(if (ok) null else "✖ $summary")
                 refresh()
+                if (Band.addr(this) != null) lifecycleScope.launch {
+                    status.text = "Sinkron gelang…"
+                    try { Band.sync(this@MainActivity) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) {}
+                    updateStatus(); refresh()
+                }
             }
         }.also { it.start(a.ifEmpty { null }) }
     }
@@ -231,6 +236,8 @@ class MainActivity : AppCompatActivity() {
         else "⟳ " + (if (System.currentTimeMillis() - last < 20 * 3_600_000L) tf else df).format(Date(last))
         val bat = prefs.getInt("baterai", -1)
         if (bat >= 0) parts += "💍 $bat%"
+        val bb = prefs.getInt("band_batt", -1)
+        if (bb >= 0 && Band.addr(this) != null) parts += "⌚ $bb%"
         status.text = parts.joinToString("  ·  ")
     }
 

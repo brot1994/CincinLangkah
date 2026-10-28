@@ -5,7 +5,7 @@ import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 
-class Db private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "data.db", null, 5) {
+class Db private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "data.db", null, 6) {
 
     companion object {
         @Volatile private var inst: Db? = null
@@ -35,6 +35,62 @@ class Db private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "data.db", nu
 
     private fun createV5(db: SQLiteDatabase) {
         db.execSQL("CREATE TABLE IF NOT EXISTS weight(ts INTEGER PRIMARY KEY, kg REAL, src TEXT)")
+        createV6(db)
+    }
+
+    // ---------- gelang (QC Wireless) ----------
+    private fun createV6(db: SQLiteDatabase) {
+        db.execSQL("CREATE TABLE IF NOT EXISTS band_steps(ts INTEGER PRIMARY KEY, steps INTEGER, kcal INTEGER, dist INTEGER)")
+        db.execSQL("CREATE TABLE IF NOT EXISTS band_hr(ts INTEGER PRIMARY KEY, hr INTEGER)")
+        db.execSQL("CREATE TABLE IF NOT EXISTS band_sleep(start INTEGER PRIMARY KEY, dur INTEGER, stage INTEGER)")
+    }
+
+    fun putBandSteps(ts: Long, steps: Int, kcal: Int, dist: Int) {
+        val cv = ContentValues().apply { put("ts", ts); put("steps", steps); put("kcal", kcal); put("dist", dist) }
+        writableDatabase.insertWithOnConflict("band_steps", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
+    }
+
+    /** Langkah gelang per 15 menit: (waktu, langkah). */
+    fun bandSteps(from: Long, to: Long): List<Pair<Long, Int>> {
+        val out = ArrayList<Pair<Long, Int>>()
+        readableDatabase.rawQuery("SELECT ts,steps FROM band_steps WHERE ts>=? AND ts<? ORDER BY ts", arrayOf(from.toString(), to.toString()))
+            .use { c -> while (c.moveToNext()) out += c.getLong(0) to c.getInt(1) }
+        return out
+    }
+
+    fun putBandHr(list: List<Ycbt.HeartRec>): Int {
+        var n = 0
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            for (r in list) {
+                val cv = ContentValues().apply { put("ts", r.tsMs); put("hr", r.hr) }
+                if (db.insertWithOnConflict("band_hr", null, cv, SQLiteDatabase.CONFLICT_REPLACE) != -1L) n++
+            }
+            db.setTransactionSuccessful()
+        } finally { db.endTransaction() }
+        return n
+    }
+
+    fun putBandSleep(list: List<Ycbt.SleepSeg>): Int {
+        var n = 0
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            for (s in list) {
+                val cv = ContentValues().apply { put("start", s.startMs); put("dur", s.durSec); put("stage", s.stage) }
+                if (db.insertWithOnConflict("band_sleep", null, cv, SQLiteDatabase.CONFLICT_REPLACE) != -1L) n++
+            }
+            db.setTransactionSuccessful()
+        } finally { db.endTransaction() }
+        return n
+    }
+
+    fun bandSleep(from: Long, to: Long): List<Ycbt.SleepSeg> {
+        val out = ArrayList<Ycbt.SleepSeg>()
+        readableDatabase.rawQuery("SELECT start,dur,stage FROM band_sleep WHERE start>=? AND start<? ORDER BY start", arrayOf(from.toString(), to.toString()))
+            .use { c -> while (c.moveToNext()) out += Ycbt.SleepSeg(c.getLong(0), c.getInt(1), c.getInt(2)) }
+        return out
     }
 
     /** Berat badan: (waktu, kg). */
@@ -120,6 +176,7 @@ class Db private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "data.db", nu
         if (oldVersion < 3) createV3(db)
         if (oldVersion < 4) createV4(db)
         if (oldVersion < 5) createV5(db)
+        if (oldVersion < 6) createV6(db)
     }
 
     fun putHeart(list: List<Ycbt.HeartRec>): Int {
@@ -152,8 +209,9 @@ class Db private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "data.db", nu
 
     fun heart(from: Long, to: Long): List<Ycbt.HeartRec> {
         val out = ArrayList<Ycbt.HeartRec>()
-        readableDatabase.rawQuery("SELECT ts,hr FROM heart WHERE ts>=? AND ts<? ORDER BY ts",
-            arrayOf(from.toString(), to.toString())).use { c ->
+        // detak jantung cincin + gelang (gelang mengukur tiap 5 menit)
+        readableDatabase.rawQuery("SELECT ts,hr FROM heart WHERE ts>=? AND ts<? UNION ALL SELECT ts,hr FROM band_hr WHERE ts>=? AND ts<? ORDER BY ts",
+            arrayOf(from.toString(), to.toString(), from.toString(), to.toString())).use { c ->
             while (c.moveToNext()) out += Ycbt.HeartRec(c.getLong(0), c.getInt(1))
         }
         return out

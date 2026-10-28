@@ -81,7 +81,16 @@ object WatchData {
     }
 
     /** Tidur "malam sebelum" tanggal ini: 18:00 hari sebelumnya s/d 14:00. */
+    /** Tidur dari jam (Health Connect); kalau tidak ada, dari gelang QC. */
     suspend fun sleep(ctx: Context, date: LocalDate): List<Ycbt.SleepSeg> {
+        val hc = try { sleepHc(ctx, date) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { emptyList() }
+        if (hc.isNotEmpty()) return hc
+        val zone = ZoneId.systemDefault()
+        return Db.get(ctx).bandSleep(date.minusDays(1).atStartOfDay(zone).plusHours(18).toInstant().toEpochMilli(),
+            date.atStartOfDay(zone).plusHours(14).toInstant().toEpochMilli())
+    }
+
+    private suspend fun sleepHc(ctx: Context, date: LocalDate): List<Ycbt.SleepSeg> {
         if (!granted(ctx)) return emptyList()
         val c = HealthConnectClient.getOrCreate(ctx)
         val zone = ZoneId.systemDefault()

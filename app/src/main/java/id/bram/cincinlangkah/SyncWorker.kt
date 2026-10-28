@@ -68,5 +68,6 @@ suspend fun runRing(ctx: Context, liveHrSec: Int, why: String): Boolean {
     }
     if (ok == null) main.post { client?.cancel() }
     SyncWorker.running = false
+    try { Band.sync(ctx) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { AppLog.d("⌚ Gelang error: ${e.message}") }
     return ok == true
 }

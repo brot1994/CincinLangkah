@@ -82,7 +82,14 @@ object Report {
         // Bucket aktivitas lebih rinci; penghitung kumulatif hanya cadangan kalau bucket kosong
         val ring = if (sport.sum() > 0) sport.copyOf() else cum.copyOf()
         val phoneBest = DoubleArray(24) { if (useHc) hc!![it] else if (covered[it]) phone[it] else 0.0 }
-        val watch = HcSteps.watchFor(date)?.takeIf { it.sum() > 0 }
+        // wearable: jam via Health Connect + gelang QC (per jam diambil yang terbesar)
+        val band = DoubleArray(24)
+        for ((ts, st) in db.bandSteps(from, to)) {
+            val h = ((ts - from) / 3_600_000L).toInt()
+            if (h in 0..23) band[h] += st.toDouble()
+        }
+        val hcW = HcSteps.watchFor(date)
+        val watch = DoubleArray(24) { maxOf(hcW?.get(it) ?: 0.0, band[it]) }.takeIf { it.sum() > 0 }
         val w = DoubleArray(24) { watch?.get(it) ?: 0.0 }
         val fromWatch = BooleanArray(24) { w[it] > ring[it] && w[it] > phoneBest[it] }
         val fromPhone = BooleanArray(24) { !fromWatch[it] && phoneBest[it] > ring[it] }
