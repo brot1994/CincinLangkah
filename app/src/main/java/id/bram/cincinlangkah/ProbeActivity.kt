@@ -265,7 +265,7 @@ class ProbeActivity : AppCompatActivity() {
         else if (c.writeType == BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE) done()
     }
 
-    private fun wait(ms: Long) = enqueue { main.postDelayed({ next() }, ms) }
+    private fun pause(ms: Long) = enqueue { main.postDelayed({ next() }, ms) }
 
     private fun bcd(v: Int) = ((v / 10) shl 4) or (v % 10)
 
@@ -274,29 +274,29 @@ class ProbeActivity : AppCompatActivity() {
         // set jam (sama seperti aplikasi resmi saat menyambung; tidak menghapus data)
         send(g, QC_SVC, QC_WRITE, qcPacket(0x01, bcd(cal.get(Calendar.YEAR) % 100), bcd(cal.get(Calendar.MONTH) + 1),
             bcd(cal.get(Calendar.DAY_OF_MONTH)), bcd(cal.get(Calendar.HOUR_OF_DAY)), bcd(cal.get(Calendar.MINUTE)), bcd(cal.get(Calendar.SECOND)), 1), "set jam")
-        wait(800)
+        pause(800)
         send(g, QC_SVC, QC_WRITE, qcPacket(0x03), "baterai")
-        wait(1200)
+        pause(1200)
         // langkah per 15 menit: hari ini & kemarin
         send(g, QC_SVC, QC_WRITE, qcPacket(0x43, 0, 0x0f, 0x00, 0x5f, 0x01), "langkah hari ini")
-        wait(4000)
+        pause(4000)
         send(g, QC_SVC, QC_WRITE, qcPacket(0x43, 1, 0x0f, 0x00, 0x5f, 0x01), "langkah kemarin")
-        wait(4000)
+        pause(4000)
         // detak jantung hari ini (stempel waktu = tengah malam hari ini, UTC detik)
         val mid = Calendar.getInstance().apply { set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0) }
         val ts = ((mid.timeInMillis + mid.timeZone.getOffset(mid.timeInMillis)) / 1000).toInt()
         send(g, QC_SVC, QC_WRITE, qcPacket(0x15, ts and 0xff, (ts shr 8) and 0xff, (ts shr 16) and 0xff, (ts shr 24) and 0xff), "detak jantung hari ini")
-        wait(4000)
+        pause(4000)
         send(g, QC_SVC, QC_WRITE, qcPacket(0x39), "HRV")
-        wait(3000)
+        pause(3000)
         send(g, QC_SVC, QC_WRITE, qcPacket(0x37), "stres")
-        wait(3000)
+        pause(3000)
         // kanal big-data v2: tidur & SpO2 (format pendek, tidak 16 byte)
         if (g.getService(QC2_SVC) != null) {
             send(g, QC2_SVC, QC2_WRITE, byteArrayOf(0xbc.toByte(), 0x27, 0x01, 0x00, 0xff.toByte(), 0x00, 0xff.toByte()), "tidur (v2)")
-            wait(4000)
+            pause(4000)
             send(g, QC2_SVC, QC2_WRITE, byteArrayOf(0xbc.toByte(), 0x2a, 0x01, 0x00, 0xff.toByte(), 0x00, 0xff.toByte()), "SpO2 (v2)")
-            wait(4000)
+            pause(4000)
         } else log("(tidak ada kanal big-data v2)")
         enqueue { log("Selesai. Kembali ke dashboard → Pengaturan & log → Bagikan log, kirim ke Claude."); gatt?.disconnect(); done() }
     }
