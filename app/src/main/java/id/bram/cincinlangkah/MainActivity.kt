@@ -723,6 +723,15 @@ class MainActivity : AppCompatActivity() {
         tools.addView(smallButton("Izinkan latar") { askBattery() })
         tools.addView(smallButton("Bagikan log") { shareLog() })
         c7.addView(tools)
+        c7.addView(Button(this).apply {
+            text = "🔍 Kenali perangkat baru (gelang/jam)"; isAllCaps = false; textSize = 13f; setTextColor(pal.ring)
+            background = GradientDrawable().apply { cornerRadius = px(10).toFloat(); setStroke(px(1), pal.ring) }
+            layoutParams = LinearLayout.LayoutParams(MATCH_PARENT, px(44)).apply { topMargin = px(8) }
+            setOnClickListener {
+                if (!hasBtPerms()) { pendingSync = { ProbeActivity.open(this@MainActivity) }; basePerms.launch(btPermList()) }
+                else ProbeActivity.open(this@MainActivity)
+            }
+        })
         logView = TextView(this).apply {
             textSize = 10f; typeface = Typeface.MONOSPACE; setTextColor(pal.muted); setTextIsSelectable(true)
             setPadding(0, px(10), 0, 0)
