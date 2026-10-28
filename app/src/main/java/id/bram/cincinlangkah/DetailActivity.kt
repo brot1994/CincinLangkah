@@ -212,10 +212,10 @@ class DetailActivity : AppCompatActivity() {
                 sub.text = "%.2f km".format(id, r.distKm) +
                     "  ·  💍 ${fmtN(r.ring.sum())}  ·  📱 ${fmtN(r.phoneBest.sum())}"
                 chartBox.addView(HourBarsView(this, pal).apply {
-                    ring = r.ring; phone = r.phoneBest; watch = r.watch
+                    ring = r.ring; phone = r.phoneBest; watch = r.watch; band = r.band
                     nowHour = if (date == LocalDate.now()) java.time.LocalTime.now().hour else -1
                 })
-                chartBox.addView(legendRow(listOf(pal.ring to "Cincin", pal.phone to "HP", pal.awake to "Jam")))
+                chartBox.addView(legendRow(listOf(pal.ring to "Cincin", pal.phone to "HP", pal.awake to "Jam", pal.band to "Gelang")))
                 for (h in 23 downTo 0) if (r.fused[h] >= 0.5) listRow("%02d:00".format(h), fmtN(r.fused[h]) + " langkah", null)
             }
             Metric.SLEEP -> {
@@ -223,7 +223,7 @@ class DetailActivity : AppCompatActivity() {
                 big.text = fmt(asleep.takeIf { it > 0 })
                 sub.text = if (d.sleep.isEmpty()) "belum ada data tidur"
                     else "${tf.format(Date(d.sleep.first().startMs))} – ${tf.format(Date(d.sleep.maxOf { it.startMs + it.durSec * 1000L }))}" +
-                        "  ·  " + (if (d.sleepFromWatch) "dari jam ⌚" else "dari cincin 💍")
+                        "  ·  " + (if (d.sleepFromWatch) "dari ${WatchData.sleepSrc(date)} ⌚" else "dari cincin 💍")
                 chartBox.addView(SleepView(this, pal).apply { segs = d.sleep })
                 fun m(st: Int) = d.sleep.filter { it.stage == st }.sumOf { it.durSec } / 60
                 listOf(1 to "Nyenyak", 2 to "Ringan", 3 to "REM", 4 to "Terjaga").forEach { (st, n) ->
@@ -231,12 +231,12 @@ class DetailActivity : AppCompatActivity() {
                 }
             }
             Metric.HEART -> {
-                val all = (d.heartRing + d.heartWatch).sortedBy { it.tsMs }
+                val all = (d.heartRing + d.heartWatch + d.heartBand).sortedBy { it.tsMs }
                 big.text = if (all.isEmpty()) "–" else fmt(all.map { it.hr }.average())
                 sub.text = if (all.isEmpty()) "belum ada data" else
                     "rata² · ${all.minOf { it.hr }}–${all.maxOf { it.hr }} · terakhir ${all.last().hr} (${tf.format(Date(all.last().tsMs))})"
-                chartBox.addView(HeartView(this, pal).apply { pts = d.heartRing; watch = d.heartWatch; dayStart = ds; hOverride = 160f })
-                chartBox.addView(legendRow(listOf(pal.ring to "Cincin", pal.heart to "Jam")))
+                chartBox.addView(HeartView(this, pal).apply { pts = d.heartRing; watch = d.heartWatch; band = d.heartBand; dayStart = ds; hOverride = 160f })
+                chartBox.addView(legendRow(listOf(pal.ring to "Cincin", pal.band to "Gelang", pal.heart to "Jam")))
             }
             Metric.EXERCISE -> {
                 val mins = d.sessions.sumOf { ((it.second - it.first) / 60_000L).toInt() }

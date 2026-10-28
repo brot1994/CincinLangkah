@@ -102,7 +102,7 @@ object Coach {
         val to = wake ?: ms(d, 7)
         val hrv = withContext(Dispatchers.IO) { db.vitals("hrv", from, to) }.map { it.v1 }.filter { it in 5..250 }
         val resp = withContext(Dispatchers.IO) { db.vitals("resp", from, to) }.map { it.v1 }.filter { it in 6..40 }
-        var hr = withContext(Dispatchers.IO) { db.heart(from, to) }.map { it.hr }
+        var hr = withContext(Dispatchers.IO) { db.heart(from, to) + db.bandHr(from, to) }.map { it.hr }
         safe { hr = hr + WatchData.heart(ctx, from, to).map { it.hr } }
         hr = hr.filter { it in 30..150 }.sorted()
         // detak istirahat = rata-rata 10% terendah selama tidur
@@ -326,7 +326,7 @@ object Coach {
         val nt = c.night; val b = c.base
         appendLine("Semalam: tidur ${nt.sleepMin} mnt (kebutuhan ${c.sleepNeed}), nyenyak ${nt.deepMin}, REM ${nt.remMin}, terjaga ${nt.awakeMin} mnt, terbangun ${nt.wakeups}×, " +
             "HRV ${nt.hrv?.roundToInt() ?: "-"} (normal ${b.hrv?.roundToInt() ?: "-"}), detak istirahat ${nt.rhr?.roundToInt() ?: "-"} (normal ${b.rhr?.roundToInt() ?: "-"}), " +
-            "napas ${nt.resp?.let { f1(it) } ?: "-"} (normal ${b.resp?.let { f1(it) } ?: "-"}), SpO2 min ${nt.spo2Min ?: "-"}. Sumber tidur: ${if (nt.fromWatch) "jam" else "cincin"}.")
+            "napas ${nt.resp?.let { f1(it) } ?: "-"} (normal ${b.resp?.let { f1(it) } ?: "-"}), SpO2 min ${nt.spo2Min ?: "-"}. Sumber tidur: ${if (nt.fromWatch) WatchData.sleepSrc(c.date) else "cincin"}.")
         appendLine("Skor: pemulihan ${c.recovery ?: "-"}%, tidur ${c.sleepScore ?: "-"}%, beban hari ini ${f1(c.strain)} (saran ${c.strainLo.roundToInt()}–${c.strainHi.roundToInt()}), beban kemarin ${f1(c.yStrain)}." +
             if (b.learning) " (Baseline masih sedikit datanya.)" else "")
         appendLine("Hari ini sejauh ini: ${c.steps.roundToInt()} langkah, kalori aktif ${c.kcal.roundToInt()} kkal, olahraga ${c.exMin.roundToInt()} mnt.")

@@ -26,8 +26,11 @@ object Report {
         val spo2: List<Ycbt.Vital>,
         val hrv: List<Ycbt.Vital>,
         val resp: List<Ycbt.Vital>,
-        val watch: DoubleArray?,        // langkah dari jam (Health Sync)
+        val watch: DoubleArray?,        // langkah dari jam/Fitbit (Health Connect)
         val fromWatch: BooleanArray,    // jam di mana data jam yang dipakai
+        val band: DoubleArray?,         // langkah dari gelang QC
+        val fromBand: BooleanArray,
+        val heartBand: List<Ycbt.HeartRec>,
     ) {
         val total get() = fused.sum()
         fun sleepMin(stage: Int) = sleep.filter { it.stage == stage }.sumOf { it.durSec } / 60
@@ -89,11 +92,13 @@ object Report {
             if (h in 0..23) band[h] += st.toDouble()
         }
         val hcW = HcSteps.watchFor(date)
-        val watch = DoubleArray(24) { maxOf(hcW?.get(it) ?: 0.0, band[it]) }.takeIf { it.sum() > 0 }
+        val watch = hcW?.takeIf { it.sum() > 0 }
+        val bandOrNull = band.takeIf { it.sum() > 0 }
         val w = DoubleArray(24) { watch?.get(it) ?: 0.0 }
-        val fromWatch = BooleanArray(24) { w[it] > ring[it] && w[it] > phoneBest[it] }
-        val fromPhone = BooleanArray(24) { !fromWatch[it] && phoneBest[it] > ring[it] }
-        val fused = DoubleArray(24) { maxOf(ring[it], phoneBest[it], w[it]) }
+        val fromBand = BooleanArray(24) { band[it] > ring[it] && band[it] > phoneBest[it] && band[it] > w[it] }
+        val fromWatch = BooleanArray(24) { !fromBand[it] && w[it] > ring[it] && w[it] > phoneBest[it] }
+        val fromPhone = BooleanArray(24) { !fromWatch[it] && !fromBand[it] && phoneBest[it] > ring[it] }
+        val fused = DoubleArray(24) { maxOf(ring[it], phoneBest[it], w[it], band[it]) }
 
         // Jarak & kalori: pakai rasio dari cincin kalau ada, kalau tidak perkiraan umum
         val rSteps = sportRecs.filter { it.startMs >= from }.sumOf { it.steps }
@@ -115,7 +120,8 @@ object Report {
         return Day(date, sport, cum, phone, covered, hc, ring, phoneBest, fused, fromPhone,
             total * mPerStep / 1000.0, total * kcalPerStep, sleep, heart,
             db.vitals("bp", from, to), db.vitals("spo2", from, to),
-            db.vitals("hrv", from, to), db.vitals("resp", from, to), watch, fromWatch)
+            db.vitals("hrv", from, to), db.vitals("resp", from, to), watch, fromWatch,
+            bandOrNull, fromBand, db.bandHr(from, to))
     }
 
     /** Total langkah gabungan untuk beberapa hari (untuk grafik mingguan). */

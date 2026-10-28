@@ -301,10 +301,11 @@ class MainActivity : AppCompatActivity() {
         setMetric(mKcal, day.kcal.roundToInt().toString(), "/$goalKcal kkal")
         setMetric(mSteps, fmtN(day.total), "/${fmtN(goal.toDouble())} langkah")
         val ringT = day.ring.sum(); val phoneT = day.phoneBest.sum()
-        statSrc.text = "%.2f km".format(Locale("id", "ID"), day.distKm) + "   ·   💍 cincin ${fmtN(ringT)}   ·   📱 HP ${fmtN(phoneT)}"
+        statSrc.text = "%.2f km".format(Locale("id", "ID"), day.distKm) + "   ·   💍 ${fmtN(ringT)}   ·   📱 ${fmtN(phoneT)}" +
+            (day.watch?.let { "   ·   ⌚ ${fmtN(it.sum())}" } ?: "") + (day.band?.let { "   ·   gelang ${fmtN(it.sum())}" } ?: "")
 
         val isToday = day.date == LocalDate.now()
-        hourBars.ring = day.ring; hourBars.phone = day.phoneBest; hourBars.watch = day.watch
+        hourBars.ring = day.ring; hourBars.phone = day.phoneBest; hourBars.watch = day.watch; hourBars.band = day.band
         hourBars.nowHour = if (isToday) java.time.LocalTime.now().hour else -1
         hourBars.invalidate()
 
@@ -315,6 +316,7 @@ class MainActivity : AppCompatActivity() {
         val segs = Ycbt.withGaps(if (useWatch) wSleep else day.sleep)
         val tot = asleep(segs)
         fun stageMin(st: Int) = segs.filter { it.stage == st }.sumOf { it.durSec } / 60
+        val sSrc = if (useWatch) WatchData.sleepSrc(day.date) else "cincin"
         sleepBig.text = if (tot > 0) "${tot / 60} j ${tot % 60} m" + (if (useWatch) "  ⌚" else "  💍") else "–"
         sleepView.segs = segs; sleepView.invalidate()
         miniSleep.segs = segs; miniSleep.invalidate()
@@ -323,17 +325,17 @@ class MainActivity : AppCompatActivity() {
             else "belum ada data"
         sleepLegend.text = if (segs.isEmpty()) ""
         else "● Nyenyak ${hm(stageMin(1))}   ● Ringan ${hm(stageMin(2))}   ● REM ${hm(stageMin(3))}   ● Terjaga ${hm(stageMin(4))}" +
-            "\nSumber: " + (if (useWatch) "jam" else "cincin") +
-            (if (wSleep.isNotEmpty() && day.sleep.isNotEmpty()) " (jam ${hm(asleep(wSleep))} · cincin ${hm(asleep(day.sleep))})" else "")
+            "\nSumber: " + sSrc +
+            (if (wSleep.isNotEmpty() && day.sleep.isNotEmpty()) " (${WatchData.sleepSrc(day.date)} ${hm(asleep(wSleep))} · cincin ${hm(asleep(day.sleep))})" else "")
 
         // detak jantung: titik = cincin, garis = jam
         val wHr = watch?.heart ?: emptyList()
-        val hr = (day.heart + wHr).sortedBy { it.tsMs }
+        val hr = (day.heart + wHr + day.heartBand).sortedBy { it.tsMs }
         heartBig.text = if (hr.isEmpty()) "–" else
             "${hr.last().hr} bpm   ·   ${hr.minOf { it.hr }}–${hr.maxOf { it.hr }}"
-        heartView.pts = day.heart; heartView.watch = wHr
+        heartView.pts = day.heart; heartView.watch = wHr; heartView.band = day.heartBand
         heartView.dayStart = Report.dayStart(day.date); heartView.invalidate()
-        miniHeart.pts = day.heart; miniHeart.watch = wHr
+        miniHeart.pts = day.heart; miniHeart.watch = wHr; miniHeart.band = day.heartBand
         miniHeart.dayStart = Report.dayStart(day.date); miniHeart.invalidate()
         tHeart.value.text = if (hr.isEmpty()) "–" else "${hr.last().hr} bpm"
         tHeart.sub.text = if (hr.isEmpty()) "belum ada data" else "${hr.minOf { it.hr }}–${hr.maxOf { it.hr }} hari ini"
@@ -471,7 +473,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun renderTable(day: Report.Day) {
         table.removeAllViews()
-        table.addView(row("Jam", "💍", "kum", "📱", "HC", "⌚", "Gab.", header = true, shade = false, hi = false))
+        table.addView(row("Jam", "💍", "kum", "📱", "HC", "⌚", "Gel", "Gab.", header = true, shade = false, hi = false))
         val now = java.time.LocalDateTime.now()
         for (h in 0 until 24) {
             if (day.date == now.toLocalDate() && h > now.hour) break
@@ -481,11 +483,12 @@ class MainActivity : AppCompatActivity() {
                 if (day.phoneCovered[h]) n(day.phone[h]) else "·",
                 day.hc?.let { n(it[h]) } ?: "·",
                 day.watch?.let { n(it[h]) } ?: "·",
-                n(day.fused[h]) + when { day.fromWatch[h] -> "ᴶ"; day.fromPhone[h] -> "ᴴ"; else -> "" },
+                day.band?.let { n(it[h]) } ?: "·",
+                n(day.fused[h]) + when { day.fromBand[h] -> "ᴳ"; day.fromWatch[h] -> "ᴶ"; day.fromPhone[h] -> "ᴴ"; else -> "" },
                 header = false, shade = h % 2 == 1, hi = hi))
         }
         table.addView(row("Total", n(day.ringSport.sum()), n(day.ringCum.sum()), n(day.phone.sum()),
-            day.hc?.let { n(it.sum()) } ?: "·", day.watch?.let { n(it.sum()) } ?: "·", n(day.total),
+            day.hc?.let { n(it.sum()) } ?: "·", day.watch?.let { n(it.sum()) } ?: "·", day.band?.let { n(it.sum()) } ?: "·", n(day.total),
             header = true, shade = false, hi = false))
     }
 
@@ -501,7 +504,7 @@ class MainActivity : AppCompatActivity() {
                 else -> Color.TRANSPARENT
             })
         }
-        val weights = floatArrayOf(0.9f, 1f, 1f, 1f, 1f, 1f, 1.15f)
+        val weights = floatArrayOf(0.85f, 1f, 1f, 1f, 1f, 1f, 1f, 1.15f)
         cols.forEachIndexed { i, t ->
             ll.addView(TextView(this).apply {
                 text = t
@@ -623,7 +626,7 @@ class MainActivity : AppCompatActivity() {
         c2.addView(title("Langkah per jam"))
         hourBars = HourBarsView(this, pal)
         c2.addView(hourBars)
-        c2.addView(legend(listOf(pal.ring to "Cincin", pal.phone to "HP", pal.awake to "Jam")))
+        c2.addView(legend(listOf(pal.ring to "Cincin", pal.phone to "HP", pal.awake to "Jam", pal.band to "Gelang")))
         c2.addView(note("Total langkah = gabungan: tiap jam diambil yang lebih besar, karena masing-masing bisa terlewat " +
             "(HP ditinggal di meja, atau tangan diam saat jalan)."))
 
@@ -649,7 +652,7 @@ class MainActivity : AppCompatActivity() {
         heartBig = big(c4)
         heartView = HeartView(this, pal)
         c4.addView(heartView)
-        c4.addView(legend(listOf(pal.ring to "Cincin (titik)", pal.heart to "Jam (garis)")))
+        c4.addView(legend(listOf(pal.ring to "Cincin (titik)", pal.band to "Gelang", pal.heart to "Jam")))
 
         val c5 = card(root)
         cardWeek = c5
@@ -677,8 +680,8 @@ class MainActivity : AppCompatActivity() {
         table = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         c6.addView(table)
         c6.addView(note("💍 = cincin (bucket 30 menit) · kum = penghitung kumulatif cincin · 📱 = step counter HP " +
-            "(dicatat aplikasi ini tiap ±15 menit) · HC = langkah HP dari Health Connect · ⌚ = jam/gelang (Huawei via Health Sync, Fitbit) · " +
-            "Gab. = dipakai di dashboard, tiap jam diambil yang terbesar (ᴴ = dari HP, ᴶ = dari jam). " +
+            "(dicatat aplikasi ini tiap ±15 menit) · HC = langkah HP dari Health Connect · ⌚ = jam (Huawei via Health Sync, Fitbit) · Gel = gelang · " +
+            "Gab. = dipakai di dashboard, tiap jam diambil yang terbesar (ᴴ = HP, ᴶ = jam, ᴳ = gelang). " +
             "Baris kuning = cincin dan HP beda jauh."))
         root.addView(tableBox)
 

@@ -72,6 +72,14 @@ class Db private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "data.db", nu
         return n
     }
 
+    /** Detak jantung gelang (tiap 5 menit). */
+    fun bandHr(from: Long, to: Long): List<Ycbt.HeartRec> {
+        val out = ArrayList<Ycbt.HeartRec>()
+        readableDatabase.rawQuery("SELECT ts,hr FROM band_hr WHERE ts>=? AND ts<? ORDER BY ts", arrayOf(from.toString(), to.toString()))
+            .use { c -> while (c.moveToNext()) out += Ycbt.HeartRec(c.getLong(0), c.getInt(1)) }
+        return out
+    }
+
     fun putBandSleep(list: List<Ycbt.SleepSeg>): Int {
         var n = 0
         val db = writableDatabase
@@ -209,9 +217,8 @@ class Db private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "data.db", nu
 
     fun heart(from: Long, to: Long): List<Ycbt.HeartRec> {
         val out = ArrayList<Ycbt.HeartRec>()
-        // detak jantung cincin + gelang (gelang mengukur tiap 5 menit)
-        readableDatabase.rawQuery("SELECT ts,hr FROM heart WHERE ts>=? AND ts<? UNION ALL SELECT ts,hr FROM band_hr WHERE ts>=? AND ts<? ORDER BY ts",
-            arrayOf(from.toString(), to.toString(), from.toString(), to.toString())).use { c ->
+        readableDatabase.rawQuery("SELECT ts,hr FROM heart WHERE ts>=? AND ts<? ORDER BY ts",
+            arrayOf(from.toString(), to.toString())).use { c ->
             while (c.moveToNext()) out += Ycbt.HeartRec(c.getLong(0), c.getInt(1))
         }
         return out

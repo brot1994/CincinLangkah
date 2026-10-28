@@ -51,7 +51,7 @@ object Daily {
     /** Data lengkap satu hari untuk tampilan "Hari". */
     class DayDetail(
         val report: Report.Day,
-        val heartRing: List<Ycbt.HeartRec>, val heartWatch: List<Ycbt.HeartRec>,
+        val heartRing: List<Ycbt.HeartRec>, val heartWatch: List<Ycbt.HeartRec>, val heartBand: List<Ycbt.HeartRec>,
         val sleep: List<Ycbt.SleepSeg>, val sleepFromWatch: Boolean,
         val vitals: List<Ycbt.Vital>,
         val sessions: List<Triple<Long, Long, String>>,
@@ -83,7 +83,7 @@ object Daily {
         val sess = (autos.map { Triple(it.start, it.end, "${Exercise.emoji(it.type)} ${Exercise.label(it.type)}") } +
             wSess.map { Triple(it.start, it.end, "${it.type?.let { t -> Exercise.emoji(t) } ?: "🏅"} ${it.label} ⌚") })
             .sortedBy { it.first }
-        return DayDetail(rep, rep.heart, wHr, Ycbt.withGaps(if (useW) wSleep else rep.sleep), useW, vit, sess)
+        return DayDetail(rep, rep.heart, wHr, rep.heartBand, Ycbt.withGaps(if (useW) wSleep else rep.sleep), useW, vit, sess)
     }
 
     /** Nilai ringkas satu hari untuk grafik minggu/bulan (di-cache, kecuali hari ini). */
@@ -114,7 +114,7 @@ object Daily {
                 DayVal(d, tot.takeIf { it > 0 }, v2 = segs.filter { it.stage == 1 }.sumOf { it.durSec } / 60.0)
             }
             Metric.HEART -> {
-                val ring = withContext(Dispatchers.IO) { db.heart(from, to) }
+                val ring = withContext(Dispatchers.IO) { db.heart(from, to) + db.bandHr(from, to) }
                 var w = emptyList<Ycbt.HeartRec>()
                 safe { w = WatchData.heart(ctx, from, to) }
                 val all = (ring + w).map { it.hr.toDouble() }

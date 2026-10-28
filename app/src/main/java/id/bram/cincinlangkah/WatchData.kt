@@ -81,9 +81,14 @@ object WatchData {
     }
 
     /** Tidur "malam sebelum" tanggal ini: 18:00 hari sebelumnya s/d 14:00. */
+    private val fromBand = HashMap<LocalDate, Boolean>()
+    /** Nama sumber tidur "jam"/"gelang" untuk tanggal itu (setelah sleep() dipanggil). */
+    fun sleepSrc(date: LocalDate) = if (synchronized(fromBand) { fromBand[date] } == true) "gelang" else "jam"
+
     /** Tidur dari jam (Health Connect); kalau tidak ada, dari gelang QC. */
     suspend fun sleep(ctx: Context, date: LocalDate): List<Ycbt.SleepSeg> {
         val hc = try { sleepHc(ctx, date) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { emptyList() }
+        synchronized(fromBand) { fromBand[date] = hc.isEmpty() }
         if (hc.isNotEmpty()) return hc
         val zone = ZoneId.systemDefault()
         return Db.get(ctx).bandSleep(date.minusDays(1).atStartOfDay(zone).plusHours(18).toInstant().toEpochMilli(),

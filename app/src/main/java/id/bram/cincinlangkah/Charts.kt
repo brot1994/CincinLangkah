@@ -37,6 +37,7 @@ class Pal(val night: Boolean) {
     val bp = if (night) Color.parseColor("#FF9A6B") else Color.parseColor("#D9622B")
     val hrv = if (night) Color.parseColor("#A99BFF") else Color.parseColor("#6C5BD9")
     val resp = if (night) Color.parseColor("#7CD992") else Color.parseColor("#2E9E4F")
+    val band = if (night) Color.parseColor("#C38BFF") else Color.parseColor("#8E44AD")   // gelang
     fun stage(s: Int) = when (s) { 1 -> deep; 2 -> light; 3 -> rem; else -> awake }
 }
 
@@ -127,13 +128,15 @@ class HourBarsView(ctx: Context, pal: Pal) : BaseChart(ctx, pal) {
     var phone = DoubleArray(24)
     /** langkah dari jam (opsional, batang ketiga) */
     var watch: DoubleArray? = null
+    /** langkah dari gelang (opsional) */
+    var band: DoubleArray? = null
     var nowHour = -1
     override fun onDraw(c: Canvas) {
         val left = if (compact) 0f else px(30f)
         val bottom = if (compact) height.toFloat() else height - px(20f)
         val top = if (compact) px(2f) else px(8f)
         val w = (width - left) / 24f
-        val maxV = max(100.0, max(max(ring.maxOrNull() ?: 0.0, phone.maxOrNull() ?: 0.0), watch?.maxOrNull() ?: 0.0))
+        val maxV = max(100.0, maxOf(ring.maxOrNull() ?: 0.0, phone.maxOrNull() ?: 0.0, watch?.maxOrNull() ?: 0.0, band?.maxOrNull() ?: 0.0))
         val nice = niceCeil(maxV)
         // grid
         line.strokeWidth = px(1f); line.color = pal.grid
@@ -143,8 +146,11 @@ class HourBarsView(ctx: Context, pal: Pal) : BaseChart(ctx, pal) {
             c.drawLine(left, y, width.toFloat(), y, line)
             if (!compact) c.drawText(short(nice * i / 2), 0f, y + px(4f), text)
         }
-        val three = watch?.let { it.sum() > 0 } == true
-        val bw = if (three) w * 0.26f else w * 0.36f
+        val series = ArrayList<Pair<DoubleArray, Int>>()
+        series += ring to pal.ring; series += phone to pal.phone
+        watch?.takeIf { it.sum() > 0 }?.let { series += it to pal.awake }
+        band?.takeIf { it.sum() > 0 }?.let { series += it to pal.band }
+        val bw = w * 0.76f / series.size
         for (h in 0 until 24) {
             val x = left + w * h
             if (h == nowHour) {
@@ -156,10 +162,8 @@ class HourBarsView(ctx: Context, pal: Pal) : BaseChart(ctx, pal) {
                 fill.color = col
                 c.drawRoundRect(RectF(x + off, y, x + off + bw, bottom), px(2f), px(2f), fill)
             }
-            val off = if (three) w * 0.11f else w * 0.12f
-            bar(ring[h], off, pal.ring)
-            bar(phone[h], off + bw, pal.phone)
-            if (three) bar(watch!![h], off + bw * 2, pal.awake)
+            val off = w * 0.12f
+            series.forEachIndexed { i, (arr, col) -> bar(arr[h], off + bw * i, col) }
             if (!compact && h % 6 == 0) c.drawText("%02d".format(h), x, height - px(4f), text)
         }
     }
@@ -200,9 +204,11 @@ class HeartView(ctx: Context, pal: Pal) : BaseChart(ctx, pal) {
     var pts: List<Ycbt.HeartRec> = emptyList()
     /** garis dari jam */
     var watch: List<Ycbt.HeartRec> = emptyList()
+    /** garis dari gelang */
+    var band: List<Ycbt.HeartRec> = emptyList()
     var dayStart = 0L
     override fun onDraw(c: Canvas) {
-        val all = pts + watch
+        val all = pts + watch + band
         if (all.isEmpty()) { if (!compact) c.drawText("Belum ada data detak jantung", 0f, px(30f), text); return }
         val left = if (compact) 0f else px(26f)
         val top = px(4f)
@@ -218,19 +224,22 @@ class HeartView(ctx: Context, pal: Pal) : BaseChart(ctx, pal) {
         val day = 86_400_000f
         fun x(r: Ycbt.HeartRec) = left + (width - left) * ((r.tsMs - dayStart) / day)
         fun y(r: Ycbt.HeartRec) = bottom - (bottom - top) * (r.hr - lo) / (hi - lo).toFloat()
-        if (watch.isNotEmpty()) {
+        fun drawLine(list: List<Ycbt.HeartRec>, col: Int) {
+            if (list.isEmpty()) return
             val p = Path()
             var prev: Ycbt.HeartRec? = null
-            for (r in watch) {
+            for (r in list) {
                 // putus garis kalau ada celah > 30 menit
                 if (prev == null || r.tsMs - prev.tsMs > 30 * 60_000L) p.moveTo(x(r), y(r)) else p.lineTo(x(r), y(r))
                 prev = r
             }
-            line.color = pal.heart; line.strokeWidth = px(1.6f); line.strokeJoin = Paint.Join.ROUND
+            line.color = col; line.strokeWidth = px(1.6f); line.strokeJoin = Paint.Join.ROUND
             c.drawPath(p, line)
         }
+        drawLine(band, pal.band)
+        drawLine(watch, pal.heart)
         if (pts.isNotEmpty()) {
-            if (watch.isEmpty() && pts.size > 1) {
+            if (watch.isEmpty() && band.isEmpty() && pts.size > 1) {
                 val p = Path()
                 pts.forEachIndexed { i, r -> if (i == 0) p.moveTo(x(r), y(r)) else p.lineTo(x(r), y(r)) }
                 line.color = pal.ring; line.strokeWidth = px(1.6f); c.drawPath(p, line)
