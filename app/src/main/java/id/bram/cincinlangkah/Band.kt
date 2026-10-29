@@ -96,6 +96,7 @@ object Band {
         fun close(why: String) {
             if (finished) return
             finished = true
+            if (stepDay.isNotEmpty()) log("Langkah gelang per hari: " + stepDay.entries.joinToString { "${it.key}=${it.value}" })
             log("Gelang selesai ($why): langkah $nSteps slot, HR $nHr, HRV/stres $nVit, tidur $nSleep segmen")
             try { gatt?.disconnect(); gatt?.close() } catch (_: Exception) {}
             onDone(why == "ok")
@@ -161,6 +162,8 @@ object Band {
                 dayMid[ts] = midMs
                 send(SVC, WR, packet(0x15, ts and 0xff, (ts shr 8) and 0xff, (ts shr 16) and 0xff, (ts shr 24) and 0xff)); pause(2500)
             }
+            // uji: perintah tidur versi lama (dicatat mentah untuk dipelajari)
+            send(SVC, WR, packet(0x44, 0, 0x0f, 0x00, 0x5f, 0x01)); pause(2000)
             send(SVC, WR, packet(0x39)); pause(2000)
             send(SVC, WR, packet(0x37)); pause(2000)
             if (gatt?.getService(SVC2) != null) {
@@ -172,6 +175,8 @@ object Band {
 
         // ---------- paket 16 byte ----------
         var hrMid = 0L; var hrInt = 5
+        val stepDay = java.util.TreeMap<LocalDate, Int>()
+        var unknown = 0
         var vitInt = 30
 
         fun onQc(v: ByteArray) {
@@ -190,6 +195,7 @@ object Band {
                     val kcal = u8(v, 7) or (u8(v, 8) shl 8)
                     val dist = u8(v, 11) or (u8(v, 12) shl 8)
                     db.putBandSteps(ts, steps, kcal, dist); nSteps++
+                    stepDay[date] = (stepDay[date] ?: 0) + steps
                 }
                 0x15 -> {
                     val sub = u8(v, 1)
@@ -207,6 +213,7 @@ object Band {
                         else -> hrValues(v, 2, 9 + (sub - 2) * 13)
                     }
                 }
+                0x44, 0x48 -> if (unknown++ < 40) log("raw 0x%02x: %s".format(u8(v, 0), hex(v)))
                 0x39, 0x37 -> {
                     val sub = u8(v, 1)
                     if (sub == 0) { vitInt = u8(v, 3).takeIf { it in 1..120 } ?: 30; return }
@@ -247,6 +254,23 @@ object Band {
             big = ByteArray(0)
             log("big-data 0x%02x: %d byte · %s".format(type, len, hex(payload.copyOf(minOf(payload.size, 48)))))
             if (type == 0x27) parseSleep(payload)
+            if (type == 0x2a) parseSpo2(payload)
+        }
+
+        /** SpO2 per jam: per hari [hariLalu][24 × (min,maks)] */
+        fun parseSpo2(p: ByteArray) {
+            val out = ArrayList<Ycbt.Vital>()
+            var i = 0
+            while (i + 49 <= p.size) {
+                val ago = u8(p, i)
+                val mid = LocalDate.now().minusDays(ago.toLong()).atStartOfDay(zone).toInstant().toEpochMilli()
+                for (h in 0 until 24) {
+                    val lo = u8(p, i + 1 + h * 2); val hi = u8(p, i + 2 + h * 2)
+                    if (lo in 70..100 && hi in 70..100) out += Ycbt.Vital(mid + h * 3_600_000L + 1_800_000L, "spo2", (lo + hi + 1) / 2, lo)
+                }
+                i += 49
+            }
+            if (out.isNotEmpty()) { db.putVitals(out); log("SpO2: ${out.size} jam (${out.minOf { it.v2 }}–${out.maxOf { it.v1 }}%)") }
         }
 
         fun parseSleep(p: ByteArray) {
