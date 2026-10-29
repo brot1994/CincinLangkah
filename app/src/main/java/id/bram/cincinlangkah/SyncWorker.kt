@@ -50,6 +50,11 @@ suspend fun runRing(ctx: Context, liveHrSec: Int, why: String): Boolean {
         ContextCompat.checkSelfPermission(ctx, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED
     ) return false
     if (SyncWorker.running) return false
+    if (BuildConfig.BAND_ONLY) {
+        // Lige Pantau: hanya gelang
+        AppLog.d(why)
+        return try { Band.sync(ctx) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { AppLog.d("⌚ Gelang error: ${e.message}"); false }
+    }
     val addr = ctx.getSharedPreferences("cfg", Context.MODE_PRIVATE).getString("addr", null)
     if (addr.isNullOrBlank()) return false
 

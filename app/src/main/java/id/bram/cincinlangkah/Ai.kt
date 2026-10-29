@@ -48,7 +48,13 @@ object Ai {
         e.apply()
     }
 
-    val SYSTEM = """
+    val SYSTEM get() = if (!BuildConfig.BAND_ONLY) SYSTEM_BASE else SYSTEM_BASE
+        .replace("\"Cincin Langkah\"", "\"Lige Pantau\"")
+        .replace("cincin pintar R11M (HRV/tensi/SpO2 diukur beberapa kali per malam, bukan kontinu), step counter HP, dan kadang jam/gelang.",
+            "gelang Lige H59 (detak jantung tiap 5 menit, HRV & stres tiap 30 menit), step counter HP, dan kadang jam lain.")
+        .replace("Ingat data cincin bisa bolong", "Ingat data gelang bisa bolong")
+
+    private val SYSTEM_BASE = """
 Kamu adalah pelatih kesehatan pribadi di aplikasi "Cincin Langkah", gayanya seperti pelatih di aplikasi Whoop: jujur, hangat, to the point.
 Data berasal dari cincin pintar R11M (HRV/tensi/SpO2 diukur beberapa kali per malam, bukan kontinu), step counter HP, dan kadang jam/gelang.
 Aturan:

@@ -18,26 +18,29 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 
-/** Warna dashboard, terang/gelap. */
+/** Warna dashboard, terang/gelap. Versi "Lige Pantau" memakai palet yang lebih cerah. */
 class Pal(val night: Boolean) {
-    val bg = if (night) Color.parseColor("#0F1513") else Color.parseColor("#F3F6F5")
-    val card = if (night) Color.parseColor("#18211E") else Color.WHITE
-    val fg = if (night) Color.parseColor("#E8ECEA") else Color.parseColor("#17201C")
-    val muted = if (night) Color.parseColor("#93A39C") else Color.parseColor("#66736E")
-    val grid = if (night) Color.parseColor("#2A3531") else Color.parseColor("#E3E9E6")
-    val ring = if (night) Color.parseColor("#3CC79A") else Color.parseColor("#1E8E6E")   // cincin
-    val phone = if (night) Color.parseColor("#6FA8FF") else Color.parseColor("#2F6FDB")  // HP
-    val track = if (night) Color.parseColor("#253430") else Color.parseColor("#DCEFE8")
-    val heart = if (night) Color.parseColor("#FF7A8A") else Color.parseColor("#E0475B")
-    val deep = if (night) Color.parseColor("#7C6CF0") else Color.parseColor("#5B48D6")
-    val light = if (night) Color.parseColor("#A99BFF") else Color.parseColor("#9C8CF5")
-    val rem = if (night) Color.parseColor("#5CC8E8") else Color.parseColor("#2BA9D1")
-    val awake = if (night) Color.parseColor("#F2B84B") else Color.parseColor("#E5A11C")
-    val spo2 = if (night) Color.parseColor("#5CC8E8") else Color.parseColor("#1A8FB8")
-    val bp = if (night) Color.parseColor("#FF9A6B") else Color.parseColor("#D9622B")
-    val hrv = if (night) Color.parseColor("#A99BFF") else Color.parseColor("#6C5BD9")
-    val resp = if (night) Color.parseColor("#7CD992") else Color.parseColor("#2E9E4F")
-    val band = if (night) Color.parseColor("#C38BFF") else Color.parseColor("#8E44AD")   // gelang
+    private val v = BuildConfig.BAND_ONLY
+    private fun c(classicNight: String, classicDay: String, vividNight: String, vividDay: String) =
+        Color.parseColor(if (v) (if (night) vividNight else vividDay) else (if (night) classicNight else classicDay))
+    val bg = c("#0F1513", "#F3F6F5", "#0B1030", "#F2F5FF")
+    val card = c("#18211E", "#FFFFFF", "#161E4A", "#FFFFFF")
+    val fg = c("#E8ECEA", "#17201C", "#F4F6FF", "#121838")
+    val muted = c("#93A39C", "#66736E", "#A8B3E6", "#5B6390")
+    val grid = c("#2A3531", "#E3E9E6", "#283468", "#E1E6FA")
+    val ring = c("#3CC79A", "#1E8E6E", "#00F0B5", "#00B386")    // cincin / warna utama
+    val phone = c("#6FA8FF", "#2F6FDB", "#4DA8FF", "#2979FF")   // HP
+    val track = c("#253430", "#DCEFE8", "#22306A", "#DDE6FF")
+    val heart = c("#FF7A8A", "#E0475B", "#FF4D7A", "#FF1F5A")
+    val deep = c("#7C6CF0", "#5B48D6", "#7F5BFF", "#6A3DFF")
+    val light = c("#A99BFF", "#9C8CF5", "#B7A4FF", "#A48BFF")
+    val rem = c("#5CC8E8", "#2BA9D1", "#22D8FF", "#00B4E6")
+    val awake = c("#F2B84B", "#E5A11C", "#FFD23F", "#FFB300")
+    val spo2 = c("#5CC8E8", "#1A8FB8", "#1FE0FF", "#00A8E8")
+    val bp = c("#FF9A6B", "#D9622B", "#FF8A3D", "#FF6D00")
+    val hrv = c("#A99BFF", "#6C5BD9", "#C47BFF", "#9C27FF")
+    val resp = c("#7CD992", "#2E9E4F", "#3DF58A", "#00C853")
+    val band = c("#C38BFF", "#8E44AD", "#FF5CE1", "#E6007E")    // gelang
     fun stage(s: Int) = when (s) { 1 -> deep; 2 -> light; 3 -> rem; else -> awake }
 }
 

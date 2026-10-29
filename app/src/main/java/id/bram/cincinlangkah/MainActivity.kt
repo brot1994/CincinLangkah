@@ -135,7 +135,9 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         AppLog.init(this)
-        if (prefs.getString("addr", null) == null) prefs.edit().putString("addr", "EA:CE:44:64:06:9B").apply()
+        if (BuildConfig.BAND_ONLY) {
+            if (prefs.getString("band_addr", null) == null) prefs.edit().putString("band_addr", "31:37:46:32:57:02").apply()
+        } else if (prefs.getString("addr", null) == null) prefs.edit().putString("addr", "EA:CE:44:64:06:9B").apply()
         buildUi()
         AppLog.listener = { line -> appendLog(line) }
         AppLog.recentLines().takeLast(60).forEach { appendLog(it) }
@@ -174,6 +176,20 @@ class MainActivity : AppCompatActivity() {
 
     // ---------------- aksi ----------------
     private fun doSync() {
+        if (BuildConfig.BAND_ONLY) {
+            if (!hasBtPerms()) { pendingSync = { doSync() }; basePerms.launch(btPermList()); return }
+            if (Band.running) { toast("Sinkron gelang sedang berjalan"); return }
+            syncBtn.text = "…"; status.text = "Menyambung ke gelang…"
+            lifecycleScope.launch {
+                PhoneSteps.sample(this@MainActivity, "sebelum sinkron")
+                val ok = try { Band.sync(this@MainActivity) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { false }
+                syncBtn.text = "⟳"
+                if (ok) prefs.edit().putLong("last_sync", System.currentTimeMillis()).apply()
+                updateStatus(if (ok) null else "✖ gelang tidak tersambung")
+                refresh()
+            }
+            return
+        }
         if (ring != null) { ring?.cancel(); return }
         if (SyncWorker.running) { toast("Sinkron otomatis sedang berjalan, tunggu sebentar"); return }
         if (!hasBtPerms()) { pendingSync = { doSync() }; basePerms.launch(btPermList()); return }
@@ -301,7 +317,7 @@ class MainActivity : AppCompatActivity() {
         setMetric(mKcal, day.kcal.roundToInt().toString(), "/$goalKcal kkal")
         setMetric(mSteps, fmtN(day.total), "/${fmtN(goal.toDouble())} langkah")
         val ringT = day.ring.sum(); val phoneT = day.phoneBest.sum()
-        statSrc.text = "%.2f km".format(Locale("id", "ID"), day.distKm) + "   ·   💍 ${fmtN(ringT)}   ·   📱 ${fmtN(phoneT)}" +
+        statSrc.text = "%.2f km".format(Locale("id", "ID"), day.distKm) + (if (BuildConfig.BAND_ONLY) "" else "   ·   💍 ${fmtN(ringT)}") + "   ·   📱 ${fmtN(phoneT)}" +
             (day.watch?.let { "   ·   ⌚ ${fmtN(it.sum())}" } ?: "") + (day.band?.let { "   ·   gelang ${fmtN(it.sum())}" } ?: "")
 
         val isToday = day.date == LocalDate.now()
@@ -360,7 +376,8 @@ class MainActivity : AppCompatActivity() {
             t.spark.dayStart = ds; t.spark.invalidate()
         }
         fill(tSpo2, (day.spo2 + (watch?.spo2 ?: emptyList())).sortedBy { it.tsMs }, "%")
-        fill(tBp, day.bp, "", two = true)
+        if (BuildConfig.BAND_ONLY) fill(tBp, Db.get(this).vitals("stress", ds, ds + 86_400_000L), "")
+        else fill(tBp, day.bp, "", two = true)
         fill(tHrv, day.hrv, "")
         fill(tResp, day.resp, "")
 
@@ -615,9 +632,10 @@ class MainActivity : AppCompatActivity() {
         val vr = row()
         root.addView(vr, rowLp())
         tSpo2 = tile(vr, "SpO₂", pal.spo2)
-        tBp = tile(vr, "Tensi", pal.bp)
-        tHrv = tile(vr, "HRV", pal.hrv)
+        tBp = tile(vr, if (BuildConfig.BAND_ONLY) "Stres" else "Tensi", pal.bp)
+        tHrv = tile(vr, "HRV", pal.hrv, last = BuildConfig.BAND_ONLY)
         tResp = tile(vr, "Napas", pal.resp, last = true)
+        if (BuildConfig.BAND_ONLY) (tResp.value.parent as View).visibility = View.GONE
 
         // ===== DETAIL (di bawah lipatan) =====
         root.addView(section("Detail"))
@@ -626,7 +644,7 @@ class MainActivity : AppCompatActivity() {
         c2.addView(title("Langkah per jam"))
         hourBars = HourBarsView(this, pal)
         c2.addView(hourBars)
-        c2.addView(legend(listOf(pal.ring to "Cincin", pal.phone to "HP", pal.awake to "Jam", pal.band to "Gelang")))
+        c2.addView(legend(src(listOf(pal.ring to "Cincin", pal.phone to "HP", pal.awake to "Jam", pal.band to "Gelang"))))
         c2.addView(note("Total langkah = gabungan: tiap jam diambil yang lebih besar, karena masing-masing bisa terlewat " +
             "(HP ditinggal di meja, atau tangan diam saat jalan)."))
 
@@ -652,7 +670,7 @@ class MainActivity : AppCompatActivity() {
         heartBig = big(c4)
         heartView = HeartView(this, pal)
         c4.addView(heartView)
-        c4.addView(legend(listOf(pal.ring to "Cincin (titik)", pal.band to "Gelang", pal.heart to "Jam")))
+        c4.addView(legend(src(listOf(pal.ring to "Cincin (titik)", pal.band to "Gelang", pal.heart to "Jam"))))
 
         val c5 = card(root)
         cardWeek = c5
@@ -667,7 +685,7 @@ class MainActivity : AppCompatActivity() {
         fun go(v: View, m: Metric) = v.setOnClickListener { DetailActivity.open(this, m, date) }
         go(tSleep.box, Metric.SLEEP); go(tHeart.box, Metric.HEART); go(tEx.box, Metric.EXERCISE)
         tWeek.box.setOnClickListener { DetailActivity.open(this, Metric.STEPS, date, 1) }; go(hero, Metric.STEPS)
-        go(tSpo2.value.parent as View, Metric.SPO2); go(tBp.value.parent as View, Metric.BP)
+        go(tSpo2.value.parent as View, Metric.SPO2); if (!BuildConfig.BAND_ONLY) go(tBp.value.parent as View, Metric.BP)
         go(tHrv.value.parent as View, Metric.HRV); go(tResp.value.parent as View, Metric.RESP)
 
         hcBtn = bigButton("Hubungkan Samsung Health (Health Connect)", primary = false) { doHc() }
@@ -689,8 +707,11 @@ class MainActivity : AppCompatActivity() {
         settingsBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; visibility = View.GONE }
         root.addView(toggle("Pengaturan & log", settingsBox))
         val c7 = card(settingsBox)
-        c7.addView(note("Alamat Bluetooth cincin"))
-        addr = edit(prefs.getString("addr", "") ?: "", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS)
+        c7.addView(note(if (BuildConfig.BAND_ONLY) "Alamat Bluetooth gelang Lige" else "Alamat Bluetooth cincin"))
+        addr = edit(prefs.getString(if (BuildConfig.BAND_ONLY) "band_addr" else "addr", "") ?: "", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS)
+        if (BuildConfig.BAND_ONLY) addr.setOnFocusChangeListener { _, has ->
+            if (!has) prefs.edit().putString("band_addr", addr.text.toString().trim().uppercase()).apply()
+        }
         c7.addView(addr)
         c7.addView(note("Berat badan (kg) — untuk perkiraan kalori olahraga (otomatis dari catatan berat program)"))
         val berat = edit(prefs.getInt("berat", 70).toString(), InputType.TYPE_CLASS_NUMBER)
@@ -725,6 +746,7 @@ class MainActivity : AppCompatActivity() {
             text = "Hapus riwayat di cincin setelah tersimpan di HP (seperti SmartHealth, supaya memori cincin tidak penuh)"
             setTextColor(pal.fg); textSize = 13f
             isChecked = prefs.getBoolean("hapus_di_cincin", true)
+            if (BuildConfig.BAND_ONLY) visibility = View.GONE
             setOnCheckedChangeListener { _, v -> prefs.edit().putBoolean("hapus_di_cincin", v).apply() }
             setPadding(0, px(8), 0, px(8))
         })
@@ -843,6 +865,9 @@ class MainActivity : AppCompatActivity() {
         textSize = 15f; setTextColor(pal.fg); gravity = Gravity.CENTER; typeface = Typeface.DEFAULT_BOLD
         layoutParams = LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f)
     }.also { parent.addView(it) }
+
+    /** Di Lige Pantau, sumber "Cincin" tidak ditampilkan. */
+    private fun src(l: List<Pair<Int, String>>) = if (BuildConfig.BAND_ONLY) l.filter { !it.second.startsWith("Cincin") } else l
 
     private fun legend(items: List<Pair<Int, String>>) = LinearLayout(this).apply {
         orientation = LinearLayout.HORIZONTAL; setPadding(0, px(4), 0, 0)

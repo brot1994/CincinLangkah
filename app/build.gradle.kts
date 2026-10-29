@@ -11,8 +11,24 @@ android {
         applicationId = "id.bram.cincinlangkah"
         minSdk = 28
         targetSdk = 34
-        versionCode = 22
-        versionName = "0.10.1"
+        versionCode = 23
+        versionName = "0.11.0"
+    }
+
+    buildFeatures { buildConfig = true }
+    flavorDimensions += "app"
+    productFlavors {
+        create("cincin") {
+            dimension = "app"
+            buildConfigField("boolean", "BAND_ONLY", "false")
+            resValue("string", "app_name", "Cincin Langkah")
+        }
+        create("lige") {
+            dimension = "app"
+            applicationId = "id.bram.ligepantau"
+            buildConfigField("boolean", "BAND_ONLY", "true")
+            resValue("string", "app_name", "Lige Pantau")
+        }
     }
 
     signingConfigs {

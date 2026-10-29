@@ -35,13 +35,14 @@ jobs:
       - name: Zip APK
         run: |
           mkdir -p out
-          cp app/build/outputs/apk/debug/app-debug.apk out/CincinLangkah.apk
-          cd out && zip -9 CincinLangkah.zip CincinLangkah.apk
+          cp app/build/outputs/apk/cincin/debug/app-cincin-debug.apk out/CincinLangkah.apk
+          cp app/build/outputs/apk/lige/debug/app-lige-debug.apk out/LigePantau.apk
+          cd out && zip -9 CincinLangkah.zip CincinLangkah.apk && zip -9 LigePantau.zip LigePantau.apk
 
       - uses: actions/upload-artifact@v4
         with:
           name: CincinLangkah
-          path: out/CincinLangkah.zip
+          path: out/*.zip
 
       - name: Release
         if: github.ref == 'refs/heads/main'
@@ -49,4 +50,6 @@ jobs:
         with:
           tag_name: build-${{ github.run_number }}
           name: Cincin Langkah build ${{ github.run_number }}
-          files: out/CincinLangkah.zip
+          files: |
+            out/CincinLangkah.zip
+            out/LigePantau.zip
