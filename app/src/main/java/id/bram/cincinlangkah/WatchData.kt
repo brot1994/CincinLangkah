@@ -62,7 +62,7 @@ object WatchData {
 
     /** Sesi olahraga dari Health Connect dalam rentang waktu (dipakai juga oleh detektor). */
     suspend fun sessions(ctx: Context, from: Long, to: Long): List<Session> {
-        if (!granted(ctx)) return emptyList()
+        if (BuildConfig.BAND_ONLY || !granted(ctx)) return emptyList()   // Lige Pantau: tanpa data jam
         val c = HealthConnectClient.getOrCreate(ctx)
         return readAll(c, ExerciseSessionRecord::class, Instant.ofEpochMilli(from), Instant.ofEpochMilli(to)).map {
             val ty = mapType(it.exerciseType)
@@ -73,7 +73,7 @@ object WatchData {
     }
 
     suspend fun heart(ctx: Context, from: Long, to: Long): List<Ycbt.HeartRec> {
-        if (!granted(ctx)) return emptyList()
+        if (BuildConfig.BAND_ONLY || !granted(ctx)) return emptyList()   // Lige Pantau: tanpa data jam
         val c = HealthConnectClient.getOrCreate(ctx)
         return readAll(c, HeartRateRecord::class, Instant.ofEpochMilli(from), Instant.ofEpochMilli(to))
             .flatMap { r -> r.samples.map { Ycbt.HeartRec(it.time.toEpochMilli(), it.beatsPerMinute.toInt()) } }
@@ -96,7 +96,7 @@ object WatchData {
     }
 
     private suspend fun sleepHc(ctx: Context, date: LocalDate): List<Ycbt.SleepSeg> {
-        if (!granted(ctx)) return emptyList()
+        if (BuildConfig.BAND_ONLY || !granted(ctx)) return emptyList()   // Lige Pantau: tanpa data jam
         val c = HealthConnectClient.getOrCreate(ctx)
         val zone = ZoneId.systemDefault()
         val sFrom = date.minusDays(1).atStartOfDay(zone).plusHours(18).toInstant()
@@ -122,7 +122,7 @@ object WatchData {
     }
 
     suspend fun spo2(ctx: Context, from: Long, to: Long): List<Ycbt.Vital> {
-        if (!granted(ctx)) return emptyList()
+        if (BuildConfig.BAND_ONLY || !granted(ctx)) return emptyList()   // Lige Pantau: tanpa data jam
         val c = HealthConnectClient.getOrCreate(ctx)
         return readAll(c, OxygenSaturationRecord::class, Instant.ofEpochMilli(from), Instant.ofEpochMilli(to))
             .map { Ycbt.Vital(it.time.toEpochMilli(), "spo2", it.percentage.value.toInt()) }

@@ -92,7 +92,7 @@ object Report {
             if (h in 0..23) band[h] += st.toDouble()
         }
         val hcW = HcSteps.watchFor(date)
-        val watch = hcW?.takeIf { it.sum() > 0 }
+        val watch = if (BuildConfig.BAND_ONLY) null else hcW?.takeIf { it.sum() > 0 }   // Lige Pantau: tanpa jam
         val bandOrNull = band.takeIf { it.sum() > 0 }
         val w = DoubleArray(24) { watch?.get(it) ?: 0.0 }
         val fromBand = BooleanArray(24) { band[it] > ring[it] && band[it] > phoneBest[it] && band[it] > w[it] }
