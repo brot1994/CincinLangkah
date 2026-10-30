@@ -54,7 +54,9 @@ suspend fun runRing(ctx: Context, liveHrSec: Int, why: String): Boolean {
         // Lige Pantau: gelang + data cincin dari Cincin Langkah
         AppLog.d(why)
         try { RingBridge.import(ctx, force = true) } catch (_: Exception) {}
-        return try { Band.sync(ctx) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { AppLog.d("⌚ Gelang error: ${e.message}"); false }
+        val r = try { Band.sync(ctx) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { AppLog.d("⌚ Gelang error: ${e.message}"); false }
+        if (liveHrSec == 0) try { Band.autoBp(ctx) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) {}
+        return r
     }
     val addr = ctx.getSharedPreferences("cfg", Context.MODE_PRIVATE).getString("addr", null)
     if (addr.isNullOrBlank()) return false
@@ -75,5 +77,6 @@ suspend fun runRing(ctx: Context, liveHrSec: Int, why: String): Boolean {
     if (ok == null) main.post { client?.cancel() }
     SyncWorker.running = false
     try { Band.sync(ctx) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { AppLog.d("⌚ Gelang error: ${e.message}") }
+    if (liveHrSec == 0) try { Band.autoBp(ctx) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) {}
     return ok == true
 }

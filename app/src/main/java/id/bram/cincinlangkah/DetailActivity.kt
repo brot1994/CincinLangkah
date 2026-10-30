@@ -196,6 +196,7 @@ class DetailActivity : AppCompatActivity() {
             Metric.BP -> "${v.roundToInt()}/${v2?.roundToInt() ?: "–"}"
             Metric.HRV -> "${v.roundToInt()} ms"
             Metric.RESP -> "${v.roundToInt()}/mnt"
+            Metric.STRESS -> "${v.roundToInt()}"
         }
     }
 

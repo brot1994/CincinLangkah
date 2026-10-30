@@ -78,6 +78,22 @@ object Band {
     enum class Kind(val code: Int, val label: String) { HR(1, "Detak jantung"), BP(2, "Tekanan darah"), SPO2(3, "SpO₂"), HRV(10, "HRV") }
 
     /** Ukur langsung selama [sec] detik. onUpdate dipanggil di thread utama dengan teks hasil sementara. */
+    // ---------- tensi otomatis (diukur oleh aplikasi, ikut sinkron latar tiap jam) ----------
+    private fun cfg(ctx: Context) = ctx.getSharedPreferences("cfg", Context.MODE_PRIVATE)
+    fun autoBpHours(ctx: Context) = cfg(ctx).getInt("bp_auto_h", 0)
+    fun setAutoBpHours(ctx: Context, h: Int) = cfg(ctx).edit().putInt("bp_auto_h", h).apply()
+
+    /** Ukur tensi kalau sudah waktunya (dipanggil setelah sinkron latar). */
+    suspend fun autoBp(ctx: Context) {
+        val h = autoBpHours(ctx); if (h <= 0 || addr(ctx) == null) return
+        val last = cfg(ctx).getLong("bp_auto_last", 0L)
+        if (System.currentTimeMillis() - last < h * 3_600_000L - 10 * 60_000L) return
+        cfg(ctx).edit().putLong("bp_auto_last", System.currentTimeMillis()).apply()
+        AppLog.d("🩺 Tensi otomatis (tiap $h jam) …")
+        val r = measure(ctx, Kind.BP, 45) {}
+        AppLog.d("🩺 Tensi otomatis: ${r ?: "tidak dapat hasil (gelang longgar/bergerak?)"}")
+    }
+
     suspend fun measure(ctx: Context, kind: Kind, sec: Int, onUpdate: (String) -> Unit): String? {
         val a = addr(ctx) ?: return null
         if (running) return null

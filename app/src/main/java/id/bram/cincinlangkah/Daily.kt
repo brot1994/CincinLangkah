@@ -16,19 +16,20 @@ enum class Metric(val title: String, val emoji: String) {
     SPO2("SpO₂", "🫁"),
     BP("Tensi", "🩺"),
     HRV("HRV", "〰"),
-    RESP("Laju napas", "🌬");
+    RESP("Laju napas", "🌬"),
+    STRESS("Stres", "😣");
 
     fun color(p: Pal): Int = when (this) {
         STEPS -> p.ring; KCAL -> android.graphics.Color.parseColor("#FF9F1C"); SLEEP -> p.deep
         HEART -> p.heart; EXERCISE -> android.graphics.Color.parseColor("#2F80ED"); SPO2 -> p.spo2
-        BP -> p.bp; HRV -> p.hrv; RESP -> p.resp
+        BP -> p.bp; HRV -> p.hrv; RESP -> p.resp; STRESS -> p.bp
     }
 
     /** true = nilai harian dijumlah (langkah, kalori, menit); false = dirata-rata */
     val additive get() = this == STEPS || this == KCAL || this == EXERCISE
 
     /** grafik periode memakai rentang min–maks */
-    val ranged get() = this == HEART || this == SPO2 || this == HRV || this == RESP || this == BP
+    val ranged get() = this == HEART || this == SPO2 || this == HRV || this == RESP || this == BP || this == STRESS
 }
 
 /** Satu nilai per hari. Untuk BP: v = sistolik rata², v2 = diastolik rata². */
@@ -76,6 +77,7 @@ object Daily {
         val vit = when (m) {
             Metric.SPO2 -> (rep.spo2 + wSpo2).sortedBy { it.tsMs }
             Metric.BP -> rep.bp; Metric.HRV -> rep.hrv; Metric.RESP -> rep.resp
+            Metric.STRESS -> withContext(Dispatchers.IO) { Db.get(ctx).vitals("stress", from, to) }
             else -> emptyList()
         }
         val autos = withContext(Dispatchers.IO) { Db.get(ctx).exercises(from, to) }
@@ -128,8 +130,8 @@ object Daily {
                 val min = autos.sumOf { (it.end - it.start) / 60_000.0 } + ws.sumOf { (it.end - it.start) / 60_000.0 }
                 DayVal(d, min.takeIf { it >= 1 })
             }
-            Metric.SPO2, Metric.HRV, Metric.RESP -> {
-                val kind = when (m) { Metric.SPO2 -> "spo2"; Metric.HRV -> "hrv"; else -> "resp" }
+            Metric.SPO2, Metric.HRV, Metric.RESP, Metric.STRESS -> {
+                val kind = when (m) { Metric.SPO2 -> "spo2"; Metric.HRV -> "hrv"; Metric.STRESS -> "stress"; else -> "resp" }
                 var list = withContext(Dispatchers.IO) { db.vitals(kind, from, to) }
                 if (m == Metric.SPO2) safe { list = list + WatchData.spo2(ctx, from, to) }
                 val v = list.map { it.v1.toDouble() }
