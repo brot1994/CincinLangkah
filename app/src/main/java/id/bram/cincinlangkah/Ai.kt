@@ -72,7 +72,9 @@ Aturan:
         withContext(Dispatchers.IO) {
             val prov = provider(ctx); val k = key(ctx); val m = model(ctx)
             require(prov != OFF && k.isNotBlank()) { "AI belum diatur" }
-            val models = if (prov == GEMINI) (listOf(m) + FALLBACK_GEMINI).distinct() else listOf(m)
+            // kalau model utama baru saja lambat/penuh, 3 jam ke depan langsung pakai model cadangan
+            val slow = p(ctx).getLong("ai_slow_until", 0L) > System.currentTimeMillis()
+            val models = if (prov == GEMINI) (if (slow) FALLBACK_GEMINI + m else listOf(m) + FALLBACK_GEMINI).distinct() else listOf(m)
             var last: Exception? = null
             for (model in models) {
                 // coba ulang dengan jeda kalau server sibuk
@@ -87,6 +89,8 @@ Aturan:
                         last = e
                         AppLog.d("✨ AI gagal ($model, coba ${attempt + 1}): ${e.message}")
                         val m2 = e.message ?: ""
+                        if (prov == GEMINI && model == m && (m2.contains("timeout", true) || m2.contains("HTTP 503") || e is java.net.SocketTimeoutException))
+                            p(ctx).edit().putLong("ai_slow_until", System.currentTimeMillis() + 3 * 3_600_000L).apply()
                         // model lambat (timeout): jangan diulang, langsung pindah ke model cadangan yang lebih cepat
                         if (m2.contains("timeout", true) || e is java.net.SocketTimeoutException) break
                         val busy = m2.contains("HTTP 503") || m2.contains("HTTP 429") || m2.contains("HTTP 529") || m2.contains("HTTP 500")
