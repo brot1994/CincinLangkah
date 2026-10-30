@@ -65,7 +65,7 @@ suspend fun runRing(ctx: Context, liveHrSec: Int, why: String): Boolean {
     SyncWorker.running = true
     val main = Handler(Looper.getMainLooper())
     var client: RingClient? = null
-    val ok = withTimeoutOrNull(150_000) {
+    val ok = try { withTimeoutOrNull(150_000) {
         suspendCancellableCoroutine { cont ->
             main.post {
                 client = RingClient(ctx, liveHrSec) { ok, _ -> if (cont.isActive) cont.resume(ok) }
@@ -73,9 +73,8 @@ suspend fun runRing(ctx: Context, liveHrSec: Int, why: String): Boolean {
             }
             cont.invokeOnCancellation { main.post { client?.cancel() } }
         }
-    }
+    } } finally { SyncWorker.running = false }
     if (ok == null) main.post { client?.cancel() }
-    SyncWorker.running = false
     try { Band.sync(ctx) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { AppLog.d("⌚ Gelang error: ${e.message}") }
     if (liveHrSec == 0) try { Band.autoBp(ctx) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) {}
     return ok == true

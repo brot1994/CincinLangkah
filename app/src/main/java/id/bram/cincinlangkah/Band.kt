@@ -49,17 +49,18 @@ object Band {
             ContextCompat.checkSelfPermission(ctx, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) return false
         if (running) return false
         running = true
-        val main = Handler(Looper.getMainLooper())
-        var s: Session? = null
-        val ok = withTimeoutOrNull(70_000) {
-            suspendCancellableCoroutine { cont ->
-                main.post { s = Session(ctx, a) { ok -> if (cont.isActive) cont.resume(ok) }.also { it.start() } }
-                cont.invokeOnCancellation { main.post { s?.close("dibatalkan") } }
+        try {
+            val main = Handler(Looper.getMainLooper())
+            var s: Session? = null
+            val ok = withTimeoutOrNull(80_000) {
+                suspendCancellableCoroutine { cont ->
+                    main.post { s = Session(ctx, a) { ok -> if (cont.isActive) cont.resume(ok) }.also { it.start() } }
+                    cont.invokeOnCancellation { main.post { s?.close("dibatalkan") } }
+                }
             }
-        }
-        if (ok == null) main.post { s?.close("waktu habis") }
-        running = false
-        return ok == true
+            if (ok == null) main.post { s?.close("waktu habis") }
+            return ok == true
+        } finally { running = false }
     }
 
     private fun bcd(v: Int) = ((v / 10) shl 4) or (v % 10)
@@ -86,6 +87,8 @@ object Band {
 
     /** Ukur tensi kalau sudah waktunya (dipanggil setelah sinkron latar). */
     suspend fun autoBp(ctx: Context) {
+        // gelang sudah mengukur tensi sendiri tiap jam (diambil saat sinkron), jadi pengukuran dari aplikasi tidak dipakai lagi
+        if (true) return
         val h = autoBpHours(ctx); if (h <= 0 || addr(ctx) == null) return
         val last = cfg(ctx).getLong("bp_auto_last", 0L)
         if (System.currentTimeMillis() - last < h * 3_600_000L - 10 * 60_000L) return
@@ -99,17 +102,18 @@ object Band {
         val a = addr(ctx) ?: return null
         if (running) return null
         running = true
-        val main = Handler(Looper.getMainLooper())
-        var m: Measure? = null
-        val res = withTimeoutOrNull((sec + 25) * 1000L) {
-            suspendCancellableCoroutine<String?> { cont ->
-                main.post { m = Measure(ctx, a, kind, sec, onUpdate) { r -> if (cont.isActive) cont.resume(r) }.also { it.start() } }
-                cont.invokeOnCancellation { main.post { m?.finish() } }
+        try {
+            val main = Handler(Looper.getMainLooper())
+            var m: Measure? = null
+            val res = withTimeoutOrNull((sec + 25) * 1000L) {
+                suspendCancellableCoroutine<String?> { cont ->
+                    main.post { m = Measure(ctx, a, kind, sec, onUpdate) { r -> if (cont.isActive) cont.resume(r) }.also { it.start() } }
+                    cont.invokeOnCancellation { main.post { m?.finish() } }
+                }
             }
-        }
-        if (res == null) main.post { m?.finish() }
-        running = false
-        return res
+            if (res == null) main.post { m?.finish() }
+            return res
+        } finally { running = false }
     }
 
     private class Measure(val ctx: Context, val addr: String, val kind: Kind, val sec: Int,
@@ -341,9 +345,7 @@ object Band {
             // uji: riwayat tensi otomatis (QC: 0x0d = data tensi terjadwal, 0x14 = tensi). Dicatat mentah.
             // 0x0e (konfirmasi/hapus) sengaja TIDAK dikirim supaya data di QWatch Pro tidak hilang.
             send(SVC, WR, packet(0x0d)); settle(1500)
-            send(SVC, WR, packet(0x0d, 0)); settle(1500)
-            send(SVC, WR, packet(0x14)); settle(1500)
-            send(SVC, WR, packet(0x0c, 1)); settle(1200)
+            enqueue { bpFlush(); next() }
             if (gatt?.getService(SVC2) != null) {
                 send(SVC2, WR2, byteArrayOf(0xbc.toByte(), 0x27, 0x01, 0x00, 0xff.toByte(), 0x00, 0xff.toByte())); pause(3000)
                 send(SVC2, WR2, byteArrayOf(0xbc.toByte(), 0x2a, 0x01, 0x00, 0xff.toByte(), 0x00, 0xff.toByte())); pause(3000)
@@ -353,6 +355,23 @@ object Band {
 
         // ---------- paket 16 byte ----------
         var hrMid = 0L; var hrInt = 5; var hrLast = 0L
+        var bpDay: LocalDate? = null; var bpHours = emptyList<Int>(); val bpVals = ArrayList<Int>()
+        /** simpan nilai mentah tensi per jam (+ detak gelang di jam itu untuk dibandingkan) */
+        fun bpFlush() {
+            val d = bpDay ?: return
+            val out = ArrayList<Ycbt.Vital>(); val txt = ArrayList<String>()
+            val mid = d.atStartOfDay(zone).toInstant().toEpochMilli()
+            bpHours.forEachIndexed { k, h ->
+                val x = bpVals.getOrNull(k) ?: return@forEachIndexed
+                if (x == 0) return@forEachIndexed
+                val ts = mid + h * 3_600_000L
+                out += Ycbt.Vital(ts, "bpraw", x)
+                val hr = db.bandHr(ts - 5 * 60_000L, ts + 6 * 60_000L).map { it.hr }
+                txt += "%02d:00=%d%s".format(h, x, if (hr.isEmpty()) "" else " (detak ${hr.joinToString("/")})")
+            }
+            if (out.isNotEmpty()) { db.putVitals(out); log("🩺 tensi mentah $d: ${txt.joinToString(", ")}") }
+            bpDay = null
+        }
         val stepDay = java.util.TreeMap<LocalDate, Int>()
         var unknown = 0
         var vitInt = 30
@@ -393,6 +412,17 @@ object Band {
                         }
                         else -> hrValues(v, 2, 9 + (sub - 2) * 13)
                     }
+                }
+                0x0d -> {
+                    // riwayat tensi terjadwal: sub 0 = [tahun-2000, bln, tgl, interval, masker jam 24 bit (byte 6..8)]
+                    // sub n>=1 = nilai berurutan untuk tiap jam yang bitnya menyala (13 per paket)
+                    val sub = u8(v, 1)
+                    if (sub == 0xff) return
+                    if (sub == 0) {
+                        bpDay = try { LocalDate.of(2000 + u8(v, 2), u8(v, 3), u8(v, 4)) } catch (_: Exception) { null }
+                        bpHours = (0 until 24).filter { h -> (u8(v, 6 + h / 8) shr (h % 8)) and 1 == 1 }
+                        bpVals.clear()
+                    } else for (i in 2..14) bpVals += u8(v, i)
                 }
                 0x44, 0x48 -> if (unknown++ < 40) log("raw 0x%02x: %s".format(u8(v, 0), hex(v)))
                 0x39, 0x37 -> {

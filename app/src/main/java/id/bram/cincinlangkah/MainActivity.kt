@@ -663,15 +663,6 @@ class MainActivity : AppCompatActivity() {
                 (if (i < 2) r1 else r2).addView(b)
             }
             mc.addView(r1); mc.addView(r2.apply { setPadding(0, px(6), 0, 0) }); mc.addView(res.apply { setPadding(0, px(10), 0, 0) })
-            val opts = listOf(0, 1, 2, 4)
-            fun autoLabel(h: Int) = "🩺 Tensi otomatis: " + if (h == 0) "Mati" else "tiap $h jam"
-            val auto = smallButton(autoLabel(Band.autoBpHours(this))) {}
-            auto.setOnClickListener {
-                val h = opts[(opts.indexOf(Band.autoBpHours(this)).coerceAtLeast(0) + 1) % opts.size]
-                Band.setAutoBpHours(this, h); auto.text = autoLabel(h)
-                toast(if (h == 0) "Tensi otomatis dimatikan" else "Tensi diukur otomatis kira-kira tiap $h jam saat sinkron latar")
-            }
-            mc.addView(row().apply { setPadding(0, px(8), 0, 0); addView(auto) })
             mc.addView(note("Butuh 30–45 detik. Duduk diam, gelang pas di atas tulang pergelangan. Tensi & SpO₂ dari gelang hanya perkiraan, " +
                 "bukan pengganti tensimeter."))
         }
