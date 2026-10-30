@@ -651,10 +651,10 @@ class MainActivity : AppCompatActivity() {
                     if (Band.running) { toast("Gelang sedang sinkron, coba sebentar lagi"); return@smallButton }
                     btns.forEach { it.isEnabled = false }
                     lifecycleScope.launch {
-                        val sec = if (k == Band.Kind.HR) 30 else 45
+                        val sec = when (k) { Band.Kind.HR -> 30; Band.Kind.BP -> 60; else -> 45 }
                         val out = try { Band.measure(this@MainActivity, k, sec) { t -> res.text = t } }
                             catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { null }
-                        res.text = out?.let { "$it · tersimpan" } ?: "Belum dapat hasil — pastikan gelang pas & tidak bergerak, lalu coba lagi"
+                        res.text = out?.let { "$it · tersimpan" + (if (it.contains("tidak dikirim")) "\n(nilai itu tidak dikirim gelang ke aplikasi; detak tetap tersimpan)" else "") } ?: "Belum dapat hasil — pastikan gelang pas & tidak bergerak, lalu coba lagi"
                         btns.forEach { it.isEnabled = true }
                         refresh()
                     }

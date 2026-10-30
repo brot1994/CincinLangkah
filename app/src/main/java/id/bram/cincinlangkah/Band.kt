@@ -19,6 +19,7 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
 import java.time.LocalDate
 import java.time.ZoneId
+import kotlin.math.roundToInt
 import java.util.Calendar
 import kotlin.coroutines.resume
 
@@ -90,7 +91,7 @@ object Band {
         if (System.currentTimeMillis() - last < h * 3_600_000L - 10 * 60_000L) return
         cfg(ctx).edit().putLong("bp_auto_last", System.currentTimeMillis()).apply()
         AppLog.d("🩺 Tensi otomatis (tiap $h jam) …")
-        val r = measure(ctx, Kind.BP, 45) {}
+        val r = measure(ctx, Kind.BP, 60) {}
         AppLog.d("🩺 Tensi otomatis: ${r ?: "tidak dapat hasil (gelang longgar/bergerak?)"}")
     }
 
@@ -156,21 +157,47 @@ object Band {
             }
             override fun onCharacteristicChanged(g: BluetoothGatt, c: BluetoothGattCharacteristic) {
                 val v = c.value?.copyOf() ?: return
-                if (v.size < 16 || u8(v, 0) != 0x69) return
                 main.post { onValue(v) }
             }
         }
 
+        // Gelang H59 mengirim interval antar-detak (RR, ms) di byte 6–7 selama mengukur,
+        // bukan angka jadi. Detak & HRV dihitung sendiri dari deret RR ini.
+        val rr = ArrayList<Int>()
+        var lastRaw = -1
+        var nLog = 0
+
+        fun median(l: List<Int>) = l.sorted()[l.size / 2]
+        fun bpm(l: List<Int>) = (60_000.0 / median(l)).roundToInt()
+        /** RMSSD dari RR, buang lompatan > 20% (artefak gerak) */
+        fun rmssd(l: List<Int>): Int? {
+            val d = l.zipWithNext().filter { (a, b) -> kotlin.math.abs(b - a) < 0.2 * a }.map { (a, b) -> (b - a).toDouble() }
+            if (d.size < 8) return null
+            return kotlin.math.sqrt(d.sumOf { it * it } / d.size).roundToInt()
+        }
+
         fun onValue(v: ByteArray) {
-            AppLog.d("⌚ ukur raw: ${hex(v)}")
+            if (v.size < 16) return
+            val interesting = u8(v, 0) != 0x69 || u8(v, 2) != 0 || u8(v, 3) != 0 || u8(v, 4) != 0 || u8(v, 5) != 0 || (8..14).any { u8(v, it) != 0 }
+            if ((interesting || nLog < 2) && nLog++ < 60) AppLog.d("⌚ ukur raw: ${hex(v)}")
+            if (u8(v, 0) != 0x69) return
             if (u8(v, 2) != 0) { onUpdate("Gelang menolak (kode ${u8(v, 2)}) — pastikan gelang terpasang pas di pergelangan"); return }
             val a = u8(v, 3); val b = u8(v, 4)
             when (kind) {
-                Kind.BP -> if (a in 70..220 && b in 40..140) { vals += intArrayOf(a, b); onUpdate("🩺 $a/$b mmHg") }
-                Kind.HR -> if (a in 30..220) { vals += intArrayOf(a); onUpdate("❤ $a bpm") }
-                Kind.SPO2 -> if (a in 70..100) { vals += intArrayOf(a); onUpdate("🫁 $a%") }
-                Kind.HRV -> if (a in 5..250) { vals += intArrayOf(a); onUpdate("💓 HRV $a ms") }
+                Kind.BP -> if (a in 70..220 && b in 40..140) vals += intArrayOf(a, b)
+                Kind.SPO2 -> if (a in 70..100) vals += intArrayOf(a)
+                else -> {}
             }
+            val raw = u8(v, 6) or (u8(v, 7) shl 8)
+            if (raw != 0 && raw != lastRaw && raw in 300..1600) rr += raw
+            if (raw != 0) lastRaw = raw
+            val live = buildString {
+                if (kind == Kind.BP && vals.isNotEmpty()) append("🩺 ${vals.last()[0]}/${vals.last()[1]} mmHg  ")
+                if (kind == Kind.SPO2 && vals.isNotEmpty()) append("🫁 ${vals.last()[0]}%  ")
+                if (rr.size >= 3) append("❤ ${bpm(rr.takeLast(8))} bpm")
+                if (kind == Kind.HRV) rmssd(rr)?.let { append(" · 💓 HRV $it ms") }
+            }
+            if (live.isNotEmpty()) onUpdate("$live  (${rr.size} detak terbaca)")
         }
 
         fun finish() {
@@ -178,18 +205,28 @@ object Band {
             done = true
             try { write(packet(0x6a, kind.code, 0, 0)) } catch (_: Exception) {}
             main.postDelayed({ try { gatt?.disconnect(); gatt?.close() } catch (_: Exception) {} }, 400)
-            if (vals.isEmpty()) { AppLog.d("⌚ Ukur ${kind.label}: tidak ada hasil"); onDone(null); return }
-            // hasil = nilai terakhir yang stabil (rata-rata 3 terakhir)
-            val last = vals.takeLast(3)
-            val x = last.map { it[0] }.average().toInt()
             val now = System.currentTimeMillis()
             val db = Db.get(ctx)
-            val text = when (kind) {
-                Kind.HR -> { db.putBandHr(listOf(Ycbt.HeartRec(now, x))); "❤ $x bpm" }
-                Kind.SPO2 -> { db.putVitals(listOf(Ycbt.Vital(now, "spo2", x, x))); "🫁 $x%" }
-                Kind.HRV -> { db.putVitals(listOf(Ycbt.Vital(now, "hrv", x))); "💓 HRV $x ms" }
-                Kind.BP -> { val y = last.map { it[1] }.average().toInt(); db.putVitals(listOf(Ycbt.Vital(now, "bp", x, y))); "🩺 $x/$y mmHg" }
+            val good = if (rr.size > 12) rr.drop(4) else rr
+            AppLog.d("⌚ Ukur ${kind.label}: ${rr.size} RR" + (if (rr.isNotEmpty()) " (${rr.min()}–${rr.max()} ms)" else "") + ", nilai langsung ${vals.size}")
+            val hr = if (good.size >= 8) bpm(good) else null
+            val parts = ArrayList<String>()
+            when (kind) {
+                Kind.BP -> if (vals.isNotEmpty()) {
+                    val l = vals.takeLast(3); val x = l.map { it[0] }.average().toInt(); val y = l.map { it[1] }.average().toInt()
+                    db.putVitals(listOf(Ycbt.Vital(now, "bp", x, y))); parts += "🩺 $x/$y mmHg"
+                } else parts += "🩺 tensi tidak dikirim gelang"
+                Kind.SPO2 -> if (vals.isNotEmpty()) {
+                    val x = vals.takeLast(3).map { it[0] }.average().toInt()
+                    db.putVitals(listOf(Ycbt.Vital(now, "spo2", x, x))); parts += "🫁 $x%"
+                } else parts += "🫁 SpO₂ tidak dikirim gelang"
+                Kind.HRV -> rmssd(good)?.let { db.putVitals(listOf(Ycbt.Vital(now, "hrv", it))); parts += "💓 HRV $it ms" }
+                Kind.HR -> {}
             }
+            if (hr != null && hr in 35..200) { db.putBandHr(listOf(Ycbt.HeartRec(now, hr))); parts.add(0, "❤ $hr bpm") }
+            val saved = parts.any { !it.contains("tidak dikirim") }
+            if (!saved) { AppLog.d("⌚ Ukur ${kind.label}: tidak ada hasil"); onDone(null); return }
+            val text = parts.joinToString("  ·  ")
             AppLog.d("⌚ Hasil ukur ${kind.label}: $text")
             onDone(text)
         }
