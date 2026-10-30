@@ -94,6 +94,7 @@ class CoachActivity : AppCompatActivity() {
         r.addView(gauge((d.strain / 21).toFloat(), "%.1f".format(Locale("id", "ID"), d.strain), "Beban /21", Color.parseColor("#2F80ED")))
         content.addView(r, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { bottomMargin = px(10) })
 
+        renderEnergy(d.date)
         lines("☀ Pagi ini", d.morning, zc)
         lines("⏱ Sekarang", d.now, null)
         lines("📅 7 hari terakhir", d.week, null)
@@ -106,6 +107,60 @@ class CoachActivity : AppCompatActivity() {
             "🟢 ≥67%, 🟡 34–66%, 🔴 <34%. Tidur = durasi vs kebutuhan (60%), porsi nyenyak & REM (20%), gangguan (10%), konsistensi jam tidur (10%). " +
             "Kebutuhan tidur 7j30m + tambahan kalau kemarin bebannya berat atau ada utang tidur. Beban 0–21 dari kalori aktif & menit olahraga. " +
             "Cincin mengukur HRV beberapa kali per malam saja, jadi skornya perkiraan — lihat trennya, bukan satu hari.").apply { setPadding(0, 0, 0, 0) })
+    }
+
+    // ---------------- energi ----------------
+    private fun renderEnergy(date: java.time.LocalDate) {
+        val col = Color.parseColor("#4FA8F5")
+        val c = card(col)
+        c.addView(title("⚡ Energi"))
+        val holder = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        c.addView(holder)
+        holder.addView(note("Menghitung…"))
+        lifecycleScope.launch {
+            val e = try { Energy.day(this@CoachActivity, date) } catch (ex: kotlinx.coroutines.CancellationException) { throw ex }
+                catch (ex: Exception) { holder.removeAllViews(); holder.addView(note("Gagal: ${ex.message}")); return@launch }
+            holder.removeAllViews()
+            holder.addView(TextView(this@CoachActivity).apply {
+                text = "${e.now ?: e.morning}"; textSize = 40f; setTextColor(pal.fg); typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER
+            })
+            holder.addView(TextView(this@CoachActivity).apply {
+                text = if (e.now != null) "energi sekarang" else "energi pagi"; textSize = 12f; setTextColor(pal.muted); gravity = Gravity.CENTER
+            })
+            holder.addView(ScoreBarsView(this@CoachActivity, pal).apply { vals = e.hourly; color = col })
+            val r = LinearLayout(this@CoachActivity).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, px(8), 0, px(4)) }
+            for ((t, v) in listOf("Terpakai" to (if (e.consumed > 0) "−${e.consumed}" else "–"), "Terisi" to "+${e.charged}")) {
+                r.addView(TextView(this@CoachActivity).apply {
+                    text = "$t  $v"; textSize = 15f; setTextColor(pal.fg); typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER
+                }, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
+            }
+            holder.addView(r)
+            fun bar(label: String, value: String, frac: Float, color: Int) {
+                val row = LinearLayout(this@CoachActivity).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, px(8), 0, px(2)) }
+                row.addView(TextView(this@CoachActivity).apply { text = label; textSize = 14f; setTextColor(pal.muted); layoutParams = LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f) })
+                row.addView(TextView(this@CoachActivity).apply { text = value; textSize = 14f; setTextColor(pal.fg); typeface = Typeface.DEFAULT_BOLD })
+                holder.addView(row)
+                val track = android.widget.FrameLayout(this@CoachActivity).apply {
+                    background = GradientDrawable().apply { cornerRadius = px(6).toFloat(); setColor(androidx.core.graphics.ColorUtils.setAlphaComponent(color, 50)) }
+                }
+                val fillV = View(this@CoachActivity).apply { background = GradientDrawable().apply { cornerRadius = px(6).toFloat(); setColor(color) } }
+                track.addView(fillV, android.widget.FrameLayout.LayoutParams(0, px(10)))
+                track.post { fillV.layoutParams = fillV.layoutParams.apply { width = (track.width * frac.coerceIn(0f, 1f)).toInt() }; fillV.requestLayout() }
+                holder.addView(track, LinearLayout.LayoutParams(MATCH_PARENT, px(10)))
+            }
+            bar("Energi pagi", "${e.morning}", e.morning / 100f, Color.parseColor("#F2C94C"))
+            bar("Laju pemulihan", "${e.recoveryRate}%", e.recoveryRate / 100f, col)
+            bar("Energi bertambah", "+${e.charged}", e.charged / 100f, Color.parseColor("#56E0B0"))
+            bar("Tidur nyenyak", "%dj %02dm".format(e.deepMin / 60, e.deepMin % 60), e.deepMin / 180f, Color.parseColor("#C77DFF"))
+            e.sleepHr?.let { hr ->
+                val row = LinearLayout(this@CoachActivity).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, px(10), 0, 0) }
+                row.addView(TextView(this@CoachActivity).apply { text = "❤ Detak rata² saat tidur"; textSize = 14f; setTextColor(pal.muted); layoutParams = LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f) })
+                row.addView(TextView(this@CoachActivity).apply { text = "$hr bpm"; textSize = 14f; setTextColor(pal.fg); typeface = Typeface.DEFAULT_BOLD })
+                holder.addView(row)
+            }
+            holder.addView(note("Perkiraan aplikasi: terisi saat tidur (nyenyak paling banyak), terkuras oleh langkah, olahraga dan stres. " +
+                "Energi saat mulai tidur = sisa energi hari sebelumnya. Mirip Energy Score QWatch, tapi rumusnya buatan sendiri."))
+        }
     }
 
     // ---------------- AI ----------------

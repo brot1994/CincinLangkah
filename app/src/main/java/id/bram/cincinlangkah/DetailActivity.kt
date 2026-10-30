@@ -228,9 +228,7 @@ class DetailActivity : AppCompatActivity() {
                         "  ·  " + (if (d.sleepFromWatch) "dari ${WatchData.sleepSrc(date)} ⌚" else "dari cincin 💍")
                 chartBox.addView(SleepView(this, pal).apply { segs = d.sleep })
                 fun m(st: Int) = d.sleep.filter { it.stage == st }.sumOf { it.durSec } / 60
-                listOf(1 to "Nyenyak", 2 to "Ringan", 3 to "REM", 4 to "Terjaga").forEach { (st, n) ->
-                    if (d.sleep.isNotEmpty()) listRow("● $n", "${m(st) / 60}j ${m(st) % 60}m", pal.stage(st))
-                }
+                if (d.sleep.isNotEmpty()) sleepStats(d.sleep, asleep.roundToInt(), m(1), m(2), m(3), m(4))
             }
             Metric.HEART -> {
                 val all = (d.heartRing + d.heartWatch + d.heartBand).sortedBy { it.tsMs }
@@ -261,6 +259,7 @@ class DetailActivity : AppCompatActivity() {
                     a = v.map { it.tsMs to it.v1 }
                     b = if (metric == Metric.BP) v.map { it.tsMs to it.v2 } else emptyList()
                 })
+                if (metric == Metric.STRESS && v.isNotEmpty()) stressStats(v.map { it.v1 })
                 for (x in v.reversed()) listRow(tf.format(Date(x.tsMs)),
                     if (metric == Metric.BP) "${x.v1}/${x.v2}" else fmt(x.v1.toDouble()), null)
             }
@@ -301,6 +300,119 @@ class DetailActivity : AppCompatActivity() {
                 date = v.date; mode = 0; load()
             }
         }
+    }
+
+    // ---------------- kartu statistik (gaya QWatch) ----------------
+    private val green = android.graphics.Color.parseColor("#2ECC71")
+    private val amber = android.graphics.Color.parseColor("#F2994A")
+    private fun hm(min: Int) = "${min / 60}j ${min % 60}m"
+
+    /** kotak statistik 2 kolom: (judul, rujukan, nilai, label status, warna status) */
+    private fun statGrid(items: List<Array<Any?>>) {
+        for (pair in items.chunked(2)) {
+            val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            pair.forEachIndexed { i, it ->
+                val box = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL; setPadding(px(14), px(10), px(12), px(12))
+                    background = GradientDrawable().apply { cornerRadius = px(16).toFloat(); setColor(pal.card) }
+                }
+                box.addView(TextView(this).apply { text = it[0] as String; textSize = 13.5f; setTextColor(pal.fg) })
+                (it[1] as String?)?.let { r -> box.addView(TextView(this).apply { text = r; textSize = 11f; setTextColor(pal.muted) }) }
+                val line = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, px(6), 0, 0) }
+                line.addView(TextView(this).apply {
+                    text = it[2] as String; textSize = 22f; setTextColor(pal.fg); typeface = Typeface.DEFAULT_BOLD
+                    layoutParams = LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f)
+                })
+                (it[3] as String?)?.let { b ->
+                    val col = it[4] as Int
+                    line.addView(TextView(this).apply {
+                        text = b; textSize = 10.5f; setTextColor(android.graphics.Color.WHITE); setPadding(px(7), px(2), px(7), px(2))
+                        background = GradientDrawable().apply { cornerRadius = px(6).toFloat(); setColor(col) }
+                    })
+                }
+                box.addView(line)
+                row.addView(box, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f).apply { if (i == 0) marginEnd = px(8) })
+            }
+            if (pair.size == 1) row.addView(View(this), LinearLayout.LayoutParams(0, 0, 1f))
+            listBox.addView(row, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { bottomMargin = px(8) })
+        }
+    }
+
+    private suspend fun sleepStats(segs: List<Ycbt.SleepSeg>, asleep: Int, deep: Int, light: Int, rem: Int, awake: Int) {
+        val sl = segs.filter { it.stage in 1..3 }
+        val bed = sl.minOf { it.startMs }; val wake = sl.maxOf { it.startMs + it.durSec * 1000L }
+        val wakeups = segs.count { it.stage == 4 && it.startMs > bed && it.startMs < wake }
+        // blok nyenyak = segmen nyenyak beruntun (celah ≤ 2 menit digabung)
+        val blocks = ArrayList<Long>(); var curEnd = -1L
+        for (sg in segs.filter { it.stage == 1 }.sortedBy { it.startMs }) {
+            val end = sg.startMs + sg.durSec * 1000L
+            if (curEnd >= 0 && sg.startMs - curEnd <= 120_000L && blocks.isNotEmpty()) blocks[blocks.size - 1] += sg.durSec / 60L
+            else blocks += sg.durSec / 60L
+            curEnd = end
+        }
+        val avgBlock = if (blocks.isEmpty()) 0.0 else blocks.average()
+        val cont = (40 + 3 * avgBlock - 4 * wakeups).roundToInt().coerceIn(0, 100)
+        val pDeep = if (asleep > 0) deep * 100 / asleep else 0
+        val pLight = if (asleep > 0) light * 100 / asleep else 0
+        val hr = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            Db.get(this@DetailActivity).let { db -> db.heart(bed, wake) + db.bandHr(bed, wake) }
+        }.map { it.hr }.filter { it in 30..150 }
+        fun st(ok: Boolean, lo: Boolean) = if (ok) "Normal" else if (lo) "Rendah" else "Tinggi"
+        fun sc(ok: Boolean) = if (ok) green else amber
+        listBox.addView(TextView(this).apply {
+            text = "${tf.format(Date(bed))} – ${tf.format(Date(wake))}"; textSize = 13f; setTextColor(pal.muted); setPadding(px(4), 0, 0, px(6))
+        })
+        statGrid(listOf(
+            arrayOf<Any?>("Total tidur", "Rujukan 6–10 jam", hm(asleep), if (asleep in 360..600) "Normal" else if (asleep < 360) "Kurang" else "Lebih", sc(asleep in 360..600)),
+            arrayOf<Any?>("Kontinuitas nyenyak", "Rujukan 70–100", "$cont", st(cont >= 70, true), sc(cont >= 70)),
+            arrayOf<Any?>("Porsi nyenyak", "Rujukan 20–60%", "$pDeep%", st(pDeep in 20..60, pDeep < 20), sc(pDeep in 20..60)),
+            arrayOf<Any?>("Porsi ringan", "Rujukan ±50%", "$pLight%", st(pLight <= 60, false), sc(pLight <= 60)),
+            arrayOf<Any?>("● Nyenyak", null, hm(deep), null, null),
+            arrayOf<Any?>("● Ringan", null, hm(light), null, null),
+            arrayOf<Any?>("● REM", null, hm(rem), null, null),
+            arrayOf<Any?>("● Terjaga", "$wakeups× terbangun", hm(awake), null, null),
+            arrayOf<Any?>("❤ Detak saat tidur", if (hr.isEmpty()) null else "${hr.min()}–${hr.max()} bpm", if (hr.isEmpty()) "–" else "${hr.average().roundToInt()} bpm", null, null),
+        ))
+        listBox.addView(TextView(this).apply {
+            text = "Kontinuitas = panjang rata-rata blok tidur nyenyak dikurangi jumlah terbangun (hitungan aplikasi ini, bukan angka QWatch)."
+            textSize = 11f; setTextColor(pal.muted); setPadding(px(4), px(2), px(4), px(8))
+        })
+    }
+
+    private fun stressStats(v: List<Int>) {
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL; setPadding(px(14), px(12), px(14), px(12))
+            background = GradientDrawable().apply { cornerRadius = px(16).toFloat(); setColor(pal.card) }
+        }
+        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        for ((t, x) in listOf("Rata-rata" to v.average().roundToInt(), "Minimum" to v.min(), "Maksimum" to v.max())) {
+            row.addView(LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER
+                addView(TextView(this@DetailActivity).apply { text = "$x"; textSize = 24f; setTextColor(pal.fg); typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER })
+                addView(TextView(this@DetailActivity).apply { text = t; textSize = 12f; setTextColor(pal.muted); gravity = Gravity.CENTER })
+            }, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
+        }
+        box.addView(row)
+        val cats = listOf(
+            Triple("Rileks 0–29", 0..29, android.graphics.Color.parseColor("#3B82F6")),
+            Triple("Normal 30–59", 30..59, android.graphics.Color.parseColor("#22D3EE")),
+            Triple("Sedang 60–79", 60..79, android.graphics.Color.parseColor("#FBBF24")),
+            Triple("Tinggi 80–100", 80..100, android.graphics.Color.parseColor("#F97316")),
+        )
+        val cnt = cats.map { (_, r, _) -> v.count { it in r } }
+        val dist = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, px(12), 0, 0) }
+        dist.addView(DonutView(this, pal).apply { parts = cnt.zip(cats).map { (n, c) -> n.toDouble() to c.third } },
+            LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
+        val leg = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        cats.forEachIndexed { i, (t, _, col) ->
+            val l = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, px(5), 0, px(5)) }
+            l.addView(TextView(this).apply { text = "●  $t"; textSize = 13f; setTextColor(col); layoutParams = LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f) })
+            l.addView(TextView(this).apply { text = "${cnt[i] * 100 / v.size}%"; textSize = 13f; setTextColor(pal.fg); typeface = Typeface.DEFAULT_BOLD })
+            leg.addView(l)
+        }
+        dist.addView(leg, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1.4f))
+        box.addView(dist)
+        listBox.addView(box, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { bottomMargin = px(8) })
     }
 
     private fun fmtN(v: Double) = "%,d".format(v.roundToInt()).replace(',', '.')

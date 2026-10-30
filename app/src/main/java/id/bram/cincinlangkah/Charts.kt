@@ -518,3 +518,49 @@ class GaugeView(ctx: Context, pal: Pal) : BaseChart(ctx, pal) {
         c.drawText(label, cx, cy + px(19f), l)
     }
 }
+
+/** Donat sederhana: daftar (nilai, warna). */
+class DonutView(ctx: Context, pal: Pal) : BaseChart(ctx, pal) {
+    override val hDp = 150f
+    var parts: List<Pair<Double, Int>> = emptyList()
+    override fun onDraw(c: Canvas) {
+        val tot = parts.sumOf { it.first }; if (tot <= 0) return
+        val r = min(width, height) / 2f - px(10f)
+        val cx = r + px(10f); val cy = height / 2f
+        val o = RectF(cx - r, cy - r, cx + r, cy + r)
+        line.style = Paint.Style.STROKE; line.strokeWidth = px(22f); line.strokeCap = Paint.Cap.BUTT
+        var a = -90f
+        for ((v, col) in parts) {
+            if (v <= 0) continue
+            val sw = (360.0 * v / tot).toFloat()
+            line.color = col; c.drawArc(o, a, sw - 1.5f, false, line)
+            a += sw
+        }
+    }
+}
+
+/** Batang per jam bernilai 0–100 (energi). */
+class ScoreBarsView(ctx: Context, pal: Pal) : BaseChart(ctx, pal) {
+    override val hDp = 150f
+    var vals: Array<Int?> = arrayOfNulls(24)
+    var color = 0
+    override fun onDraw(c: Canvas) {
+        val left = px(4f); val right = width - px(28f)
+        val bottom = height - px(20f); val top = px(8f)
+        val w = (right - left) / 24f
+        line.style = Paint.Style.STROKE; line.strokeWidth = px(1f); line.color = pal.grid
+        for (i in 0..4) {
+            val y = bottom - (bottom - top) * i / 4f
+            c.drawLine(left, y, right, y, line)
+            c.drawText("${i * 25}", right + px(4f), y + px(4f), text)
+        }
+        for (h in 0 until 24) {
+            val v = vals[h] ?: continue
+            val x = left + w * h
+            val y = bottom - (bottom - top) * (v / 100f)
+            fill.color = color
+            c.drawRoundRect(RectF(x + w * 0.2f, y, x + w * 0.8f, bottom), px(3f), px(3f), fill)
+        }
+        for (h in listOf(0, 6, 12, 18)) c.drawText("%02d".format(h), left + w * h, height - px(4f), text)
+    }
+}
