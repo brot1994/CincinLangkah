@@ -338,6 +338,12 @@ object Band {
             send(SVC, WR, packet(0x44, 0, 0x0f, 0x00, 0x5f, 0x01)); pause(2000)
             send(SVC, WR, packet(0x39)); settle(1500)
             send(SVC, WR, packet(0x37)); settle(1500)
+            // uji: riwayat tensi otomatis (QC: 0x0d = data tensi terjadwal, 0x14 = tensi). Dicatat mentah.
+            // 0x0e (konfirmasi/hapus) sengaja TIDAK dikirim supaya data di QWatch Pro tidak hilang.
+            send(SVC, WR, packet(0x0d)); settle(1500)
+            send(SVC, WR, packet(0x0d, 0)); settle(1500)
+            send(SVC, WR, packet(0x14)); settle(1500)
+            send(SVC, WR, packet(0x0c, 1)); settle(1200)
             if (gatt?.getService(SVC2) != null) {
                 send(SVC2, WR2, byteArrayOf(0xbc.toByte(), 0x27, 0x01, 0x00, 0xff.toByte(), 0x00, 0xff.toByte())); pause(3000)
                 send(SVC2, WR2, byteArrayOf(0xbc.toByte(), 0x2a, 0x01, 0x00, 0xff.toByte(), 0x00, 0xff.toByte())); pause(3000)
@@ -351,7 +357,10 @@ object Band {
         var unknown = 0
         var vitInt = 30
 
+        var nProbe = 0
         fun onQc(v: ByteArray) {
+            val c0 = if (v.isNotEmpty()) u8(v, 0) else -1
+            if (c0 !in setOf(0x01, 0x03, 0x43, 0x15, 0x39, 0x37, 0x44, 0x48) && nProbe++ < 120) log("raw 0x%02x (%d b): %s".format(c0, v.size, hex(v)))
             if (v.size < 16) return
             when (u8(v, 0)) {
                 0x03 -> {
