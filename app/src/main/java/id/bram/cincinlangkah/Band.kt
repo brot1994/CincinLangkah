@@ -73,6 +73,112 @@ object Band {
         return p
     }
 
+    // ---------------- ukur sekarang ----------------
+    /** Jenis ukur langsung (protokol QC): 1 detak, 2 tensi, 3 SpO2, 10 HRV. */
+    enum class Kind(val code: Int, val label: String) { HR(1, "Detak jantung"), BP(2, "Tekanan darah"), SPO2(3, "SpO₂"), HRV(10, "HRV") }
+
+    /** Ukur langsung selama [sec] detik. onUpdate dipanggil di thread utama dengan teks hasil sementara. */
+    suspend fun measure(ctx: Context, kind: Kind, sec: Int, onUpdate: (String) -> Unit): String? {
+        val a = addr(ctx) ?: return null
+        if (running) return null
+        running = true
+        val main = Handler(Looper.getMainLooper())
+        var m: Measure? = null
+        val res = withTimeoutOrNull((sec + 25) * 1000L) {
+            suspendCancellableCoroutine<String?> { cont ->
+                main.post { m = Measure(ctx, a, kind, sec, onUpdate) { r -> if (cont.isActive) cont.resume(r) }.also { it.start() } }
+                cont.invokeOnCancellation { main.post { m?.finish() } }
+            }
+        }
+        if (res == null) main.post { m?.finish() }
+        running = false
+        return res
+    }
+
+    private class Measure(val ctx: Context, val addr: String, val kind: Kind, val sec: Int,
+                          val onUpdate: (String) -> Unit, val onDone: (String?) -> Unit) {
+        val main = Handler(Looper.getMainLooper())
+        var gatt: BluetoothGatt? = null
+        var done = false
+        val vals = ArrayList<IntArray>()
+        val zone: ZoneId = ZoneId.systemDefault()
+
+        fun start() {
+            onUpdate("Menyambung ke gelang…")
+            val dev = (ctx.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter.getRemoteDevice(addr)
+            gatt = if (Build.VERSION.SDK_INT >= 23) dev.connectGatt(ctx, false, cb, BluetoothDevice.TRANSPORT_LE) else dev.connectGatt(ctx, false, cb)
+        }
+
+        fun write(data: ByteArray) {
+            val c = gatt?.getService(SVC)?.getCharacteristic(WR) ?: return
+            c.value = data; c.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+            gatt?.writeCharacteristic(c)
+        }
+
+        val cb = object : BluetoothGattCallback() {
+            override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) {
+                if (newState == BluetoothProfile.STATE_CONNECTED) main.postDelayed({ g.discoverServices() }, 300)
+                else if (newState == BluetoothProfile.STATE_DISCONNECTED) main.post { finish() }
+            }
+            override fun onServicesDiscovered(g: BluetoothGatt, status: Int) {
+                val c = g.getService(SVC)?.getCharacteristic(NT)
+                if (c == null) { main.post { onUpdate("Gelang tidak dikenali"); finish() }; return }
+                g.setCharacteristicNotification(c, true)
+                val d = c.getDescriptor(CCCD)
+                d.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+                g.writeDescriptor(d)
+            }
+            override fun onDescriptorWrite(g: BluetoothGatt, d: BluetoothGattDescriptor, status: Int) {
+                main.post {
+                    AppLog.d("⌚ Ukur ${kind.label} dimulai")
+                    onUpdate("Mengukur ${kind.label}… diam & jangan bergerak")
+                    write(packet(0x69, kind.code, 1))
+                    // perpanjang pengukuran tiap 10 detik
+                    for (t in 10 until sec step 10) main.postDelayed({ if (!done) write(packet(0x69, kind.code, 3)) }, t * 1000L)
+                    main.postDelayed({ finish() }, sec * 1000L)
+                }
+            }
+            override fun onCharacteristicChanged(g: BluetoothGatt, c: BluetoothGattCharacteristic) {
+                val v = c.value?.copyOf() ?: return
+                if (v.size < 16 || u8(v, 0) != 0x69) return
+                main.post { onValue(v) }
+            }
+        }
+
+        fun onValue(v: ByteArray) {
+            AppLog.d("⌚ ukur raw: ${hex(v)}")
+            if (u8(v, 2) != 0) { onUpdate("Gelang menolak (kode ${u8(v, 2)}) — pastikan gelang terpasang pas di pergelangan"); return }
+            val a = u8(v, 3); val b = u8(v, 4)
+            when (kind) {
+                Kind.BP -> if (a in 70..220 && b in 40..140) { vals += intArrayOf(a, b); onUpdate("🩺 $a/$b mmHg") }
+                Kind.HR -> if (a in 30..220) { vals += intArrayOf(a); onUpdate("❤ $a bpm") }
+                Kind.SPO2 -> if (a in 70..100) { vals += intArrayOf(a); onUpdate("🫁 $a%") }
+                Kind.HRV -> if (a in 5..250) { vals += intArrayOf(a); onUpdate("💓 HRV $a ms") }
+            }
+        }
+
+        fun finish() {
+            if (done) return
+            done = true
+            try { write(packet(0x6a, kind.code, 0, 0)) } catch (_: Exception) {}
+            main.postDelayed({ try { gatt?.disconnect(); gatt?.close() } catch (_: Exception) {} }, 400)
+            if (vals.isEmpty()) { AppLog.d("⌚ Ukur ${kind.label}: tidak ada hasil"); onDone(null); return }
+            // hasil = nilai terakhir yang stabil (rata-rata 3 terakhir)
+            val last = vals.takeLast(3)
+            val x = last.map { it[0] }.average().toInt()
+            val now = System.currentTimeMillis()
+            val db = Db.get(ctx)
+            val text = when (kind) {
+                Kind.HR -> { db.putBandHr(listOf(Ycbt.HeartRec(now, x))); "❤ $x bpm" }
+                Kind.SPO2 -> { db.putVitals(listOf(Ycbt.Vital(now, "spo2", x, x))); "🫁 $x%" }
+                Kind.HRV -> { db.putVitals(listOf(Ycbt.Vital(now, "hrv", x))); "💓 HRV $x ms" }
+                Kind.BP -> { val y = last.map { it[1] }.average().toInt(); db.putVitals(listOf(Ycbt.Vital(now, "bp", x, y))); "🩺 $x/$y mmHg" }
+            }
+            AppLog.d("⌚ Hasil ukur ${kind.label}: $text")
+            onDone(text)
+        }
+    }
+
     private class Session(val ctx: Context, val addr: String, val onDone: (Boolean) -> Unit) {
         val main = Handler(Looper.getMainLooper())
         var gatt: BluetoothGatt? = null

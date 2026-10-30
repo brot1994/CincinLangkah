@@ -380,7 +380,7 @@ class MainActivity : AppCompatActivity() {
         if (BuildConfig.BAND_ONLY) fill(tBp, Db.get(this).vitals("stress", ds, ds + 86_400_000L), "")
         else fill(tBp, day.bp, "", two = true)
         fill(tHrv, day.hrv, "")
-        fill(tResp, day.resp, "")
+        if (BuildConfig.BAND_ONLY) fill(tResp, day.bp, "", two = true) else fill(tResp, day.resp, "")
 
         renderExercise(day)
         renderTable(day)
@@ -634,9 +634,38 @@ class MainActivity : AppCompatActivity() {
         root.addView(vr, rowLp())
         tSpo2 = tile(vr, "SpO₂", pal.spo2)
         tBp = tile(vr, if (BuildConfig.BAND_ONLY) "Stres" else "Tensi", pal.bp)
-        tHrv = tile(vr, "HRV", pal.hrv, last = BuildConfig.BAND_ONLY)
-        tResp = tile(vr, "Napas", pal.resp, last = true)
-        if (BuildConfig.BAND_ONLY) (tResp.value.parent as View).visibility = View.GONE
+        tHrv = tile(vr, "HRV", pal.hrv)
+        // Lige Pantau: ubin ke-4 = Tensi (hasil ukur gelang / cincin)
+        tResp = tile(vr, if (BuildConfig.BAND_ONLY) "Tensi" else "Napas", if (BuildConfig.BAND_ONLY) pal.heart else pal.resp, last = true)
+
+        // ===== UKUR SEKARANG (gelang) =====
+        if (Band.addr(this) != null) {
+            val mc = card(root, tint = pal.heart)
+            mc.addView(title("📏 Ukur sekarang (gelang)"))
+            val res = TextView(this).apply { textSize = 18f; setTextColor(pal.fg); typeface = Typeface.DEFAULT_BOLD; text = "Pilih yang mau diukur" }
+            val r1 = row(); val r2 = row()
+            val kinds = listOf(Band.Kind.HR to "❤ Detak", Band.Kind.SPO2 to "🫁 SpO₂", Band.Kind.BP to "🩺 Tensi", Band.Kind.HRV to "💓 HRV")
+            val btns = ArrayList<Button>()
+            kinds.forEachIndexed { i, (k, label) ->
+                val b = smallButton(label) {
+                    if (Band.running) { toast("Gelang sedang sinkron, coba sebentar lagi"); return@smallButton }
+                    btns.forEach { it.isEnabled = false }
+                    lifecycleScope.launch {
+                        val sec = if (k == Band.Kind.HR) 30 else 45
+                        val out = try { Band.measure(this@MainActivity, k, sec) { t -> res.text = t } }
+                            catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { null }
+                        res.text = out?.let { "$it · tersimpan" } ?: "Belum dapat hasil — pastikan gelang pas & tidak bergerak, lalu coba lagi"
+                        btns.forEach { it.isEnabled = true }
+                        refresh()
+                    }
+                }
+                btns += b
+                (if (i < 2) r1 else r2).addView(b)
+            }
+            mc.addView(r1); mc.addView(r2.apply { setPadding(0, px(6), 0, 0) }); mc.addView(res.apply { setPadding(0, px(10), 0, 0) })
+            mc.addView(note("Butuh 30–45 detik. Duduk diam, gelang pas di atas tulang pergelangan. Tensi & SpO₂ dari gelang hanya perkiraan, " +
+                "bukan pengganti tensimeter."))
+        }
 
         // ===== DETAIL (di bawah lipatan) =====
         root.addView(section("Detail"))
@@ -687,7 +716,7 @@ class MainActivity : AppCompatActivity() {
         go(tSleep.box, Metric.SLEEP); go(tHeart.box, Metric.HEART); go(tEx.box, Metric.EXERCISE)
         tWeek.box.setOnClickListener { DetailActivity.open(this, Metric.STEPS, date, 1) }; go(hero, Metric.STEPS)
         go(tSpo2.value.parent as View, Metric.SPO2); if (!BuildConfig.BAND_ONLY) go(tBp.value.parent as View, Metric.BP)
-        go(tHrv.value.parent as View, Metric.HRV); go(tResp.value.parent as View, Metric.RESP)
+        go(tHrv.value.parent as View, Metric.HRV); go(tResp.value.parent as View, if (BuildConfig.BAND_ONLY) Metric.BP else Metric.RESP)
 
         hcBtn = bigButton("Hubungkan Samsung Health (Health Connect)", primary = false) { doHc() }
         root.addView(hcBtn)
