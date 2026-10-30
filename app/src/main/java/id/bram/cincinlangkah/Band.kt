@@ -217,6 +217,16 @@ object Band {
         }
         fun done() = main.postDelayed({ next() }, 100)
         fun pause(ms: Long) = enqueue { main.postDelayed({ next() }, ms) }
+        @Volatile var lastRx = 0L
+        /** tunggu sampai gelang selesai mengirim (tidak ada paket selama [quiet] ms), maks [max] ms */
+        fun settle(min: Long, quiet: Long = 1200, max: Long = 15_000) = enqueue {
+            val t0 = System.currentTimeMillis()
+            fun check() {
+                val now = System.currentTimeMillis()
+                if (now - t0 >= max || (now - t0 >= min && now - lastRx >= quiet)) next() else main.postDelayed({ check() }, 200)
+            }
+            main.postDelayed({ check() }, min.coerceAtMost(500))
+        }
 
         fun send(svc: java.util.UUID, chr: java.util.UUID, data: ByteArray) = enqueue {
             val c = gatt?.getService(svc)?.getCharacteristic(chr)
@@ -248,6 +258,7 @@ object Band {
             override fun onCharacteristicWrite(g: BluetoothGatt, c: BluetoothGattCharacteristic, status: Int) { main.post { done() } }
             override fun onCharacteristicChanged(g: BluetoothGatt, c: BluetoothGattCharacteristic) {
                 val v = c.value?.copyOf() ?: return
+                lastRx = System.currentTimeMillis()
                 main.post { try { if (c.uuid == NT) onQc(v) else if (c.uuid == NT2) onBig(v) } catch (e: Exception) { log("parse error: ${e.message} · ${hex(v)}") } }
             }
         }
@@ -259,19 +270,21 @@ object Band {
                 bcd(cal.get(Calendar.HOUR_OF_DAY)), bcd(cal.get(Calendar.MINUTE)), bcd(cal.get(Calendar.SECOND)), 1))
             pause(600)
             send(SVC, WR, packet(0x03)); pause(800)
-            for (d in 0..2) { send(SVC, WR, packet(0x43, d, 0x0f, 0x00, 0x5f, 0x01)); pause(2500) }
-            for (d in 0..1) {
+            for (d in 0..2) { send(SVC, WR, packet(0x43, d, 0x0f, 0x00, 0x5f, 0x01)); settle(1500) }
+            // kemarin dulu, lalu hari ini; tunggu sampai semua paket masuk (hari ini bisa >20 paket)
+            for (d in 1 downTo 0) {
                 val day = LocalDate.now().minusDays(d.toLong())
                 val midMs = day.atStartOfDay(zone).toInstant().toEpochMilli()
                 val mid = Calendar.getInstance().apply { timeInMillis = midMs }
                 val ts = ((midMs + mid.timeZone.getOffset(midMs)) / 1000).toInt()   // waktu lokal sebagai detik "UTC"
                 dayMid[ts] = midMs
-                send(SVC, WR, packet(0x15, ts and 0xff, (ts shr 8) and 0xff, (ts shr 16) and 0xff, (ts shr 24) and 0xff)); pause(2500)
+                send(SVC, WR, packet(0x15, ts and 0xff, (ts shr 8) and 0xff, (ts shr 16) and 0xff, (ts shr 24) and 0xff)); settle(2000)
+                enqueue { if (hrLast > 0) log("❤ HR gelang %s: terakhir %tR".format(day, hrLast)); hrLast = 0L; next() }
             }
             // uji: perintah tidur versi lama (dicatat mentah untuk dipelajari)
             send(SVC, WR, packet(0x44, 0, 0x0f, 0x00, 0x5f, 0x01)); pause(2000)
-            send(SVC, WR, packet(0x39)); pause(2000)
-            send(SVC, WR, packet(0x37)); pause(2000)
+            send(SVC, WR, packet(0x39)); settle(1500)
+            send(SVC, WR, packet(0x37)); settle(1500)
             if (gatt?.getService(SVC2) != null) {
                 send(SVC2, WR2, byteArrayOf(0xbc.toByte(), 0x27, 0x01, 0x00, 0xff.toByte(), 0x00, 0xff.toByte())); pause(3000)
                 send(SVC2, WR2, byteArrayOf(0xbc.toByte(), 0x2a, 0x01, 0x00, 0xff.toByte(), 0x00, 0xff.toByte())); pause(3000)
@@ -280,7 +293,7 @@ object Band {
         }
 
         // ---------- paket 16 byte ----------
-        var hrMid = 0L; var hrInt = 5
+        var hrMid = 0L; var hrInt = 5; var hrLast = 0L
         val stepDay = java.util.TreeMap<LocalDate, Int>()
         var unknown = 0
         var vitInt = 30
@@ -344,7 +357,7 @@ object Band {
             for (i in from..14) {
                 val hr = u8(v, i); if (hr !in 30..220) continue
                 val ts = hrMid + (baseIdx + i - from) * hrInt * 60_000L
-                if (ts <= now + 60_000L) out += Ycbt.HeartRec(ts, hr)
+                if (ts <= now + 60_000L) { out += Ycbt.HeartRec(ts, hr); if (ts > hrLast) hrLast = ts }
             }
             if (out.isNotEmpty()) nHr += db.putBandHr(out)
         }
