@@ -216,7 +216,7 @@ class DetailActivity : AppCompatActivity() {
                     nowHour = if (date == LocalDate.now()) java.time.LocalTime.now().hour else -1
                 })
                 chartBox.addView(legendRow(listOf(pal.ring to "Cincin", pal.phone to "HP", pal.awake to "Jam", pal.band to "Gelang")
-                    .filter { !BuildConfig.BAND_ONLY || it.second != "Cincin" }))
+                    .filter { RingBridge.hasRing(this@DetailActivity) || it.second != "Cincin" }))
                 for (h in 23 downTo 0) if (r.fused[h] >= 0.5) listRow("%02d:00".format(h), fmtN(r.fused[h]) + " langkah", null)
             }
             Metric.SLEEP -> {
@@ -238,7 +238,7 @@ class DetailActivity : AppCompatActivity() {
                     "rata² · ${all.minOf { it.hr }}–${all.maxOf { it.hr }} · terakhir ${all.last().hr} (${tf.format(Date(all.last().tsMs))})"
                 chartBox.addView(HeartView(this, pal).apply { pts = d.heartRing; watch = d.heartWatch; band = d.heartBand; dayStart = ds; hOverride = 160f })
                 chartBox.addView(legendRow(listOf(pal.ring to "Cincin", pal.band to "Gelang", pal.heart to "Jam")
-                    .filter { !BuildConfig.BAND_ONLY || it.second != "Cincin" }))
+                    .filter { RingBridge.hasRing(this@DetailActivity) || it.second != "Cincin" }))
             }
             Metric.EXERCISE -> {
                 val mins = d.sessions.sumOf { ((it.second - it.first) / 60_000L).toInt() }

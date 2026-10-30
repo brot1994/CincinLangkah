@@ -51,8 +51,9 @@ suspend fun runRing(ctx: Context, liveHrSec: Int, why: String): Boolean {
     ) return false
     if (SyncWorker.running) return false
     if (BuildConfig.BAND_ONLY) {
-        // Lige Pantau: hanya gelang
+        // Lige Pantau: gelang + data cincin dari Cincin Langkah
         AppLog.d(why)
+        try { RingBridge.import(ctx, force = true) } catch (_: Exception) {}
         return try { Band.sync(ctx) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { AppLog.d("⌚ Gelang error: ${e.message}"); false }
     }
     val addr = ctx.getSharedPreferences("cfg", Context.MODE_PRIVATE).getString("addr", null)

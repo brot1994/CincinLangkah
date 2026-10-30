@@ -274,6 +274,7 @@ class MainActivity : AppCompatActivity() {
         else d.format(DateTimeFormatter.ofPattern("EEEE, d MMM", Locale("id", "ID")))
         refreshJob?.cancel()
         refreshJob = lifecycleScope.launch {
+            if (BuildConfig.BAND_ONLY) withContext(Dispatchers.IO) { RingBridge.import(this@MainActivity) }
             val hc = hcFor(d)
             hcBtn.visibility = if (hc == null && HcSteps.available(this@MainActivity)) View.VISIBLE else View.GONE
             // Izin baca di latar (untuk deteksi olahraga saat aplikasi tertutup), minta sekali
@@ -317,7 +318,7 @@ class MainActivity : AppCompatActivity() {
         setMetric(mKcal, day.kcal.roundToInt().toString(), "/$goalKcal kkal")
         setMetric(mSteps, fmtN(day.total), "/${fmtN(goal.toDouble())} langkah")
         val ringT = day.ring.sum(); val phoneT = day.phoneBest.sum()
-        statSrc.text = "%.2f km".format(Locale("id", "ID"), day.distKm) + (if (BuildConfig.BAND_ONLY) "" else "   ·   💍 ${fmtN(ringT)}") + "   ·   📱 ${fmtN(phoneT)}" +
+        statSrc.text = "%.2f km".format(Locale("id", "ID"), day.distKm) + (if (!RingBridge.hasRing(this) || ringT < 0.5) "" else "   ·   💍 ${fmtN(ringT)}") + "   ·   📱 ${fmtN(phoneT)}" +
             (day.watch?.let { "   ·   ⌚ ${fmtN(it.sum())}" } ?: "") + (day.band?.let { "   ·   gelang ${fmtN(it.sum())}" } ?: "")
 
         val isToday = day.date == LocalDate.now()
@@ -867,7 +868,7 @@ class MainActivity : AppCompatActivity() {
     }.also { parent.addView(it) }
 
     /** Di Lige Pantau, sumber "Cincin" tidak ditampilkan. */
-    private fun src(l: List<Pair<Int, String>>) = if (BuildConfig.BAND_ONLY) l.filter { !it.second.startsWith("Cincin") } else l
+    private fun src(l: List<Pair<Int, String>>) = if (!RingBridge.hasRing(this)) l.filter { !it.second.startsWith("Cincin") } else l
 
     private fun legend(items: List<Pair<Int, String>>) = LinearLayout(this).apply {
         orientation = LinearLayout.HORIZONTAL; setPadding(0, px(4), 0, 0)

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Data cincin dibagikan hanya ke aplikasi bertanda tangan sama (Lige Pantau) -->
+    <permission
+        android:name="id.bram.cincinlangkah.permission.READ_DATA"
+        android:protectionLevel="signature" />
+    <application>
+        <provider
+            android:name="id.bram.cincinlangkah.RingProvider"
+            android:authorities="id.bram.cincinlangkah.data"
+            android:exported="true"
+            android:readPermission="id.bram.cincinlangkah.permission.READ_DATA" />
+    </application>
+</manifest>
