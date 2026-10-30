@@ -11,8 +11,8 @@ android {
         applicationId = "id.bram.cincinlangkah"
         minSdk = 28
         targetSdk = 34
-        versionCode = 28
-        versionName = "0.12.3"
+        versionCode = 29
+        versionName = "0.12.4"
     }
 
     buildFeatures { buildConfig = true }

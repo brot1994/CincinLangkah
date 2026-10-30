@@ -52,12 +52,14 @@ object RingBridge {
                     } finally { db.endTransaction() }
                 }
             }
-            if (n > 0) {
-                p.edit().putBoolean("has_ring", true).apply()
+            val once = !p.getBoolean("coach_reset_1", false)
+            if (once) p.edit().putBoolean("coach_reset_1", true).apply()
+            if (n > 0 || once) {
+                if (n > 0 || p.getBoolean("has_ring", false)) p.edit().putBoolean("has_ring", true).apply()
                 // ringkasan malam yang tersimpan (Pelatih) dihitung ulang dengan data cincin yang baru
                 val cp = ctx.getSharedPreferences("coach", Context.MODE_PRIVATE)
                 cp.edit().apply { cp.all.keys.filter { it.startsWith("n_") }.forEach { remove(it) } }.apply()
-                AppLog.d("💍 Data cincin dari Cincin Langkah: $n baris" + if (first) " (45 hari terakhir)" else "")
+                if (n > 0) AppLog.d("💍 Data cincin dari Cincin Langkah: $n baris baru" + if (first) " (45 hari terakhir)" else "")
             }
         } catch (e: SecurityException) {
             AppLog.d("💍 Belum diizinkan membaca Cincin Langkah — perbarui Cincin Langkah dulu, lalu pasang ulang Lige Pantau")
