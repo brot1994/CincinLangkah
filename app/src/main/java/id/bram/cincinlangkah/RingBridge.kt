@@ -44,7 +44,9 @@ object RingBridge {
                                 Cursor.FIELD_TYPE_STRING -> cv.put(c.getColumnName(i), c.getString(i))
                                 else -> {}
                             }
-                            if (db.insertWithOnConflict(table, null, cv, SQLiteDatabase.CONFLICT_REPLACE) != -1L) n++
+                            // baris baru dihitung; baris lama diperbarui
+                            if (db.insertWithOnConflict(table, null, cv, SQLiteDatabase.CONFLICT_IGNORE) != -1L) n++
+                            else db.insertWithOnConflict(table, null, cv, SQLiteDatabase.CONFLICT_REPLACE)
                         }
                         db.setTransactionSuccessful()
                     } finally { db.endTransaction() }
@@ -52,6 +54,9 @@ object RingBridge {
             }
             if (n > 0) {
                 p.edit().putBoolean("has_ring", true).apply()
+                // ringkasan malam yang tersimpan (Pelatih) dihitung ulang dengan data cincin yang baru
+                val cp = ctx.getSharedPreferences("coach", Context.MODE_PRIVATE)
+                cp.edit().apply { cp.all.keys.filter { it.startsWith("n_") }.forEach { remove(it) } }.apply()
                 AppLog.d("💍 Data cincin dari Cincin Langkah: $n baris" + if (first) " (45 hari terakhir)" else "")
             }
         } catch (e: SecurityException) {
