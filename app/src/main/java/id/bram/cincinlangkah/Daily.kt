@@ -76,7 +76,9 @@ object Daily {
         val useW = asleep(wSleep) > asleep(rep.sleep)
         val vit = when (m) {
             Metric.SPO2 -> (rep.spo2 + wSpo2).sortedBy { it.tsMs }
-            Metric.BP -> rep.bp; Metric.HRV -> rep.hrv; Metric.RESP -> rep.resp
+            Metric.BP -> (rep.bp + withContext(Dispatchers.IO) {
+                Db.get(ctx).vitals("bpcuff", from, to) + BpCal.estimates(ctx, from, to) }).sortedBy { it.tsMs }
+            Metric.HRV -> rep.hrv; Metric.RESP -> rep.resp
             Metric.STRESS -> withContext(Dispatchers.IO) { Db.get(ctx).vitals("stress", from, to) }
             else -> emptyList()
         }
@@ -138,7 +140,7 @@ object Daily {
                 if (v.isEmpty()) DayVal(d, null) else DayVal(d, v.average(), v.min(), v.max())
             }
             Metric.BP -> {
-                val list = withContext(Dispatchers.IO) { db.vitals("bp", from, to) }
+                val list = withContext(Dispatchers.IO) { db.vitals("bp", from, to) + db.vitals("bpcuff", from, to) }
                 if (list.isEmpty()) DayVal(d, null)
                 else DayVal(d, list.map { it.v1 }.average(), list.minOf { it.v2 }.toDouble(),
                     list.maxOf { it.v1 }.toDouble(), list.map { it.v2 }.average())

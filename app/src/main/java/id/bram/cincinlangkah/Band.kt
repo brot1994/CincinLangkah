@@ -38,6 +38,9 @@ object Band {
     private val NT2 = ProbeActivity.QC2_NOTIFY
     private val CCCD = ProbeActivity.CCCD
     @Volatile var running = false
+    /** hasil ukur langsung terakhir (untuk kalibrasi tensi) */
+    @Volatile var lastHr: Int? = null
+    @Volatile var lastRmssd: Int? = null
 
     fun addr(ctx: Context) = ctx.getSharedPreferences("cfg", Context.MODE_PRIVATE).getString("band_addr", null)
         ?.takeIf { it.isNotBlank() }
@@ -214,6 +217,7 @@ object Band {
             val good = if (rr.size > 12) rr.drop(4) else rr
             AppLog.d("⌚ Ukur ${kind.label}: ${rr.size} RR" + (if (rr.isNotEmpty()) " (${rr.min()}–${rr.max()} ms)" else "") + ", nilai langsung ${vals.size}")
             val hr = if (good.size >= 8) bpm(good) else null
+            lastHr = hr?.takeIf { it in 35..200 }; lastRmssd = rmssd(good)
             val parts = ArrayList<String>()
             when (kind) {
                 Kind.BP -> if (vals.isNotEmpty()) {

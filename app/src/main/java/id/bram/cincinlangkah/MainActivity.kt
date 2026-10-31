@@ -380,7 +380,8 @@ class MainActivity : AppCompatActivity() {
         if (BuildConfig.BAND_ONLY) fill(tBp, Db.get(this).vitals("stress", ds, ds + 86_400_000L), "")
         else fill(tBp, day.bp, "", two = true)
         fill(tHrv, day.hrv, "")
-        if (BuildConfig.BAND_ONLY) fill(tResp, day.bp, "", two = true) else fill(tResp, day.resp, "")
+        if (BuildConfig.BAND_ONLY) fill(tResp, (day.bp + Db.get(this).vitals("bpcuff", ds, ds + 86_400_000L) +
+            BpCal.estimates(this, ds, ds + 86_400_000L)).sortedBy { it.tsMs }, "", two = true) else fill(tResp, day.resp, "")
 
         renderExercise(day)
         renderTable(day)
@@ -644,11 +645,12 @@ class MainActivity : AppCompatActivity() {
             mc.addView(title("📏 Ukur sekarang (gelang)"))
             val res = TextView(this).apply { textSize = 18f; setTextColor(pal.fg); typeface = Typeface.DEFAULT_BOLD; text = "Pilih yang mau diukur" }
             val r1 = row(); val r2 = row()
-            val kinds = listOf(Band.Kind.HR to "❤ Detak", Band.Kind.SPO2 to "🫁 SpO₂", Band.Kind.BP to "🩺 Tensi", Band.Kind.HRV to "💓 HRV")
+            val kinds = listOf(Band.Kind.HR to "❤ Detak", Band.Kind.SPO2 to "🫁 SpO₂", Band.Kind.BP to "🩺 Kalibrasi tensi", Band.Kind.HRV to "💓 HRV")
             val btns = ArrayList<Button>()
             kinds.forEachIndexed { i, (k, label) ->
                 val b = smallButton(label) {
                     if (Band.running) { toast("Gelang sedang sinkron, coba sebentar lagi"); return@smallButton }
+                    if (k == Band.Kind.BP) { bpCalibrate(res, btns); return@smallButton }
                     btns.forEach { it.isEnabled = false }
                     lifecycleScope.launch {
                         val sec = when (k) { Band.Kind.HR -> 30; Band.Kind.BP -> 60; else -> 45 }
@@ -663,6 +665,7 @@ class MainActivity : AppCompatActivity() {
                 (if (i < 2) r1 else r2).addView(b)
             }
             mc.addView(r1); mc.addView(r2.apply { setPadding(0, px(6), 0, 0) }); mc.addView(res.apply { setPadding(0, px(10), 0, 0) })
+            calStatus = note(""); mc.addView(calStatus); updateCalStatus()
             mc.addView(note("Butuh 30–45 detik. Duduk diam, gelang pas di atas tulang pergelangan. Tensi & SpO₂ dari gelang hanya perkiraan, " +
                 "bukan pengganti tensimeter."))
         }
@@ -886,6 +889,70 @@ class MainActivity : AppCompatActivity() {
     private fun big(parent: LinearLayout) = TextView(this).apply {
         textSize = 26f; setTextColor(pal.fg); typeface = Typeface.DEFAULT_BOLD; setPadding(0, 0, 0, px(6))
     }.also { parent.addView(it) }
+
+    // ---------------- kalibrasi tensi ----------------
+    private var calStatus: TextView? = null
+    private fun updateCalStatus() {
+        val n = BpCal.pairs(this).count { it.hr != null }
+        val m = BpCal.model(this)
+        calStatus?.text = buildString {
+            append("🩺 Kalibrasi tensi: $n/${BpCal.MIN_PAIRS} data")
+            if (m != null) {
+                append(" · rumus meleset rata² ±%.0f/%.0f mmHg".format(m.maeSys, m.maeDia))
+                append(" (tanpa rumus, cukup pakai rata-rata: ±%.0f)".format(m.maeMeanSys))
+                if (m.ringMae != null) append("\n💍 Cincin vs manset: meleset rata² ±%.0f mmHg (${m.ringN} data)".format(m.ringMae))
+                append(if (m.ok) "\n✅ Rumus dipakai: tensi perkiraan per jam muncul di detail Tensi (tanda ≈)."
+                    else if (n >= BpCal.MIN_PAIRS) "\n⚠ Melesetnya masih > ${BpCal.MAX_MAE.toInt()} mmHg — tambah data di kondisi berbeda."
+                    else "")
+            }
+        }
+    }
+
+    private fun bpCalibrate(res: TextView, btns: List<Button>) {
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("🩺 Kalibrasi tensi")
+            .setMessage("1. Pasang manset Omron di lengan yang TIDAK memakai gelang, duduk tenang 5 menit.\n" +
+                "2. Tekan Mulai, lalu langsung mulai ukur dengan Omron.\n" +
+                "3. Gelang merekam detak ±60 detik. Setelah selesai, ketik hasil Omron.")
+            .setPositiveButton("Mulai") { _, _ ->
+                btns.forEach { it.isEnabled = false }
+                Band.lastHr = null; Band.lastRmssd = null
+                lifecycleScope.launch {
+                    try { Band.measure(this@MainActivity, Band.Kind.HR, 60) { t -> res.text = t } }
+                    catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) {}
+                    btns.forEach { it.isEnabled = true }
+                    val hr = Band.lastHr; val rm = Band.lastRmssd
+                    res.text = if (hr != null) "❤ $hr bpm" + (rm?.let { " · HRV $it ms" } ?: "") + " — masukkan hasil Omron"
+                        else "Detak gelang tidak terbaca — hasil Omron tetap bisa disimpan (tanpa kalibrasi)"
+                    askCuff(hr, rm, res)
+                }
+            }
+            .setNegativeButton("Batal", null)
+            .setNeutralButton("Hapus data terakhir") { _, _ -> BpCal.removeLast(this); updateCalStatus(); toast("Data kalibrasi terakhir dihapus") }
+            .show()
+    }
+
+    private fun askCuff(hr: Int?, rm: Int?, res: TextView) {
+        val box = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(px(20), px(8), px(20), 0) }
+        val s = EditText(this).apply { hint = "Sistolik"; inputType = android.text.InputType.TYPE_CLASS_NUMBER }
+        val d = EditText(this).apply { hint = "Diastolik"; inputType = android.text.InputType.TYPE_CLASS_NUMBER }
+        box.addView(s, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        box.addView(TextView(this).apply { text = " / "; textSize = 20f })
+        box.addView(d, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Hasil Omron")
+            .setMessage(if (hr != null) "Detak gelang tadi: $hr bpm" else "Detak gelang tidak terbaca")
+            .setView(box)
+            .setPositiveButton("Simpan") { _, _ ->
+                val sv = s.text.toString().toIntOrNull(); val dv = d.text.toString().toIntOrNull()
+                if (sv == null || dv == null || sv !in 70..250 || dv !in 40..150 || dv >= sv) { toast("Angka tensi tidak valid"); return@setPositiveButton }
+                BpCal.add(this, sv, dv, hr, rm)
+                res.text = "🩺 $sv/$dv mmHg tersimpan" + (hr?.let { " · ❤ $it bpm" } ?: "")
+                updateCalStatus(); refresh()
+            }
+            .setNegativeButton("Batal", null)
+            .show()
+    }
 
     private fun note(t: String) = TextView(this).apply {
         text = t; textSize = 11.5f; setTextColor(pal.muted); setPadding(0, px(6), 0, 0)

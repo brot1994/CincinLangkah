@@ -260,8 +260,12 @@ class DetailActivity : AppCompatActivity() {
                     b = if (metric == Metric.BP) v.map { it.tsMs to it.v2 } else emptyList()
                 })
                 if (metric == Metric.STRESS && v.isNotEmpty()) stressStats(v.map { it.v1 })
-                for (x in v.reversed()) listRow(tf.format(Date(x.tsMs)),
+                for (x in v.reversed()) listRow(tf.format(Date(x.tsMs)) + when (x.kind) { "bpcuff" -> "  🩺 manset"; "bpest" -> "  ≈ perkiraan"; else -> "" },
                     if (metric == Metric.BP) "${x.v1}/${x.v2}" else fmt(x.v1.toDouble()), null)
+                if (metric == Metric.BP && v.any { it.kind == "bpest" }) listBox.addView(TextView(this).apply {
+                    text = "≈ = perkiraan dari detak gelang memakai rumus kalibrasi pribadi (bukan hasil ukur tensi)."
+                    textSize = 11f; setTextColor(pal.muted); setPadding(px(4), px(2), px(4), px(8))
+                })
             }
         }
     }
