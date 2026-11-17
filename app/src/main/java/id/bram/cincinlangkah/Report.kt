@@ -92,13 +92,15 @@ object Report {
             if (h in 0..23) band[h] += st.toDouble()
         }
         val hcW = HcSteps.watchFor(date)
-        val watch = if (BuildConfig.BAND_ONLY) null else hcW?.takeIf { it.sum() > 0 }   // Lige Pantau: tanpa jam
+        val watch = hcW?.takeIf { it.sum() > 0 }
         val bandOrNull = band.takeIf { it.sum() > 0 }
         val w = DoubleArray(24) { watch?.get(it) ?: 0.0 }
-        val fromBand = BooleanArray(24) { band[it] > ring[it] && band[it] > phoneBest[it] && band[it] > w[it] }
-        val fromWatch = BooleanArray(24) { !fromBand[it] && w[it] > ring[it] && w[it] > phoneBest[it] }
-        val fromPhone = BooleanArray(24) { !fromWatch[it] && !fromBand[it] && phoneBest[it] > ring[it] }
-        val fused = DoubleArray(24) { maxOf(ring[it], phoneBest[it], w[it], band[it]) }
+        // Prioritas per jam: Fitbit/jam → gelang Lige → cincin; HP hanya kalau tak satu pun wearable mencatat
+        val fromWatch = BooleanArray(24) { w[it] > 0.5 }
+        val fromBand = BooleanArray(24) { !fromWatch[it] && band[it] > 0.5 }
+        val fromPhone = BooleanArray(24) { !fromWatch[it] && !fromBand[it] && ring[it] < 0.5 && phoneBest[it] > 0.5 }
+        val fused = DoubleArray(24) { when {
+            fromWatch[it] -> w[it]; fromBand[it] -> band[it]; ring[it] >= 0.5 -> ring[it]; else -> phoneBest[it] } }
 
         // Jarak & kalori: pakai rasio dari cincin kalau ada, kalau tidak perkiraan umum
         val rSteps = sportRecs.filter { it.startMs >= from }.sumOf { it.steps }

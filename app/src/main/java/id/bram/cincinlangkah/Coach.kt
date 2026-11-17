@@ -84,7 +84,7 @@ object Coach {
         var watch = emptyList<Ycbt.SleepSeg>()
         safe { watch = WatchData.sleep(ctx, d) }
         fun asleep(l: List<Ycbt.SleepSeg>) = l.filter { it.stage in 1..3 }.sumOf { it.durSec } / 60
-        val useW = asleep(watch) > asleep(ring)
+        val useW = asleep(watch) > 0
         val segs = (if (useW) watch else ring).sortedBy { it.startMs }
         val sl = segs.filter { it.stage in 1..3 }
         val bed = sl.firstOrNull()?.startMs
@@ -102,8 +102,12 @@ object Coach {
         val to = wake ?: ms(d, 7)
         val hrv = withContext(Dispatchers.IO) { db.vitals("hrv", from, to) }.map { it.v1 }.filter { it in 5..250 }
         val resp = withContext(Dispatchers.IO) { db.vitals("resp", from, to) }.map { it.v1 }.filter { it in 6..40 }
-        var hr = withContext(Dispatchers.IO) { db.heart(from, to) + db.bandHr(from, to) }.map { it.hr }
-        safe { hr = hr + WatchData.heart(ctx, from, to).map { it.hr } }
+        // detak dengan prioritas: Fitbit/jam → gelang → cincin
+        var wHr = emptyList<Int>()
+        safe { wHr = WatchData.heart(ctx, from, to).map { it.hr } }
+        val bHr = withContext(Dispatchers.IO) { db.bandHr(from, to) }.map { it.hr }
+        var hr = (if (wHr.size >= 10) wHr else if (bHr.size >= 10) bHr else withContext(Dispatchers.IO) { db.heart(from, to) }.map { it.hr }
+            .ifEmpty { wHr + bHr })
         hr = hr.filter { it in 30..150 }.sorted()
         // detak istirahat = rata-rata 10% terendah selama tidur
         val rhr = if (hr.size >= 3) hr.take(max(3, hr.size / 10)).average() else null

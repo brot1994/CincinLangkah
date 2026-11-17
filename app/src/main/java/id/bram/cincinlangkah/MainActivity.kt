@@ -331,7 +331,7 @@ class MainActivity : AppCompatActivity() {
         // tidur: pakai sumber yang mencatat tidur lebih lama (jam biasanya lebih lengkap)
         fun asleep(l: List<Ycbt.SleepSeg>) = l.filter { it.stage in 1..3 }.sumOf { it.durSec } / 60
         val wSleep = watch?.sleep ?: emptyList()
-        val useWatch = asleep(wSleep) > asleep(day.sleep)
+        val useWatch = asleep(wSleep) > 0
         val segs = Ycbt.withGaps(if (useWatch) wSleep else day.sleep)
         val tot = asleep(segs)
         fun stageMin(st: Int) = segs.filter { it.stage == st }.sumOf { it.durSec } / 60
@@ -679,7 +679,7 @@ class MainActivity : AppCompatActivity() {
         c2.addView(title("Langkah per jam"))
         hourBars = HourBarsView(this, pal)
         c2.addView(hourBars)
-        c2.addView(legend(src(listOf(pal.ring to "Cincin", pal.phone to "HP", pal.awake to "Jam", pal.band to "Gelang"))))
+        c2.addView(legend(src(listOf(pal.ring to "Cincin", pal.phone to "HP", pal.awake to "Fitbit", pal.band to "Gelang"))))
         c2.addView(note("Total langkah = gabungan: tiap jam diambil yang lebih besar, karena masing-masing bisa terlewat " +
             "(HP ditinggal di meja, atau tangan diam saat jalan)."))
 
@@ -705,7 +705,7 @@ class MainActivity : AppCompatActivity() {
         heartBig = big(c4)
         heartView = HeartView(this, pal)
         c4.addView(heartView)
-        c4.addView(legend(src(listOf(pal.ring to "Cincin (titik)", pal.band to "Gelang", pal.heart to "Jam"))))
+        c4.addView(legend(src(listOf(pal.ring to "Cincin (titik)", pal.band to "Gelang", pal.heart to "Fitbit"))))
 
         val c5 = card(root)
         cardWeek = c5

@@ -62,9 +62,10 @@ object WatchData {
 
     /** Sesi olahraga dari Health Connect dalam rentang waktu (dipakai juga oleh detektor). */
     suspend fun sessions(ctx: Context, from: Long, to: Long): List<Session> {
-        if (BuildConfig.BAND_ONLY || !granted(ctx)) return emptyList()   // Lige Pantau: tanpa data jam
+        if (!granted(ctx)) return emptyList()
         val c = HealthConnectClient.getOrCreate(ctx)
-        return readAll(c, ExerciseSessionRecord::class, Instant.ofEpochMilli(from), Instant.ofEpochMilli(to)).map {
+        return readAll(c, ExerciseSessionRecord::class, Instant.ofEpochMilli(from), Instant.ofEpochMilli(to))
+            .filter { HcSteps.isWearable(it.metadata.dataOrigin.packageName) }.map {
             val ty = mapType(it.exerciseType)
             Session(it.startTime.toEpochMilli(), it.endTime.toEpochMilli(), ty,
                 it.title?.takeIf { s -> s.isNotBlank() } ?: ty?.let { t -> Exercise.label(t) } ?: "Olahraga",
@@ -73,36 +74,51 @@ object WatchData {
     }
 
     suspend fun heart(ctx: Context, from: Long, to: Long): List<Ycbt.HeartRec> {
-        if (BuildConfig.BAND_ONLY || !granted(ctx)) return emptyList()   // Lige Pantau: tanpa data jam
+        if (!granted(ctx)) return emptyList()
         val c = HealthConnectClient.getOrCreate(ctx)
-        return readAll(c, HeartRateRecord::class, Instant.ofEpochMilli(from), Instant.ofEpochMilli(to))
+        val recs = readAll(c, HeartRateRecord::class, Instant.ofEpochMilli(from), Instant.ofEpochMilli(to))
+            .filter { HcSteps.isWearable(it.metadata.dataOrigin.packageName) }
+        // prioritas: Fitbit dulu, jam lain hanya kalau Fitbit kosong
+        val fb = recs.filter { isFitbit(it.metadata.dataOrigin.packageName) }
+        return (if (fb.isNotEmpty()) fb else recs)
             .flatMap { r -> r.samples.map { Ycbt.HeartRec(it.time.toEpochMilli(), it.beatsPerMinute.toInt()) } }
             .filter { it.hr in 25..230 && it.tsMs in from until to }.sortedBy { it.tsMs }
     }
 
     /** Tidur "malam sebelum" tanggal ini: 18:00 hari sebelumnya s/d 14:00. */
-    private val fromBand = HashMap<LocalDate, Boolean>()
-    /** Nama sumber tidur "jam"/"gelang" untuk tanggal itu (setelah sleep() dipanggil). */
-    fun sleepSrc(date: LocalDate) = if (synchronized(fromBand) { fromBand[date] } == true) "gelang" else "jam"
+    fun isFitbit(pkg: String) = pkg.contains("fitbit", ignoreCase = true)
+    private val srcByDate = HashMap<LocalDate, String>()
+    /** Nama sumber tidur ("Fitbit"/"gelang"/"jam") untuk tanggal itu (setelah sleep() dipanggil). */
+    fun sleepSrc(date: LocalDate) = synchronized(srcByDate) { srcByDate[date] } ?: "jam"
 
-    /** Tidur dari jam (Health Connect); kalau tidak ada, dari gelang QC. */
+    /**
+     * Tidur dengan urutan prioritas: Fitbit → gelang Lige → jam lain (Health Connect).
+     * Cincin dipakai pemanggil kalau semua ini kosong.
+     */
     suspend fun sleep(ctx: Context, date: LocalDate): List<Ycbt.SleepSeg> {
-        val hc = try { sleepHc(ctx, date) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { emptyList() }
-        synchronized(fromBand) { fromBand[date] = hc.isEmpty() }
-        if (hc.isNotEmpty()) return hc
+        val hc = try { sleepHc(ctx, date) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { emptyMap() }
+        val fb = hc.filterKeys { isFitbit(it) }.values.flatten().sortedBy { it.startMs }
+        if (fb.isNotEmpty()) { synchronized(srcByDate) { srcByDate[date] = "Fitbit" }; return fb }
         val zone = ZoneId.systemDefault()
-        return Db.get(ctx).bandSleep(date.minusDays(1).atStartOfDay(zone).plusHours(18).toInstant().toEpochMilli(),
+        val band = Db.get(ctx).bandSleep(date.minusDays(1).atStartOfDay(zone).plusHours(18).toInstant().toEpochMilli(),
             date.atStartOfDay(zone).plusHours(14).toInstant().toEpochMilli())
+        if (band.isNotEmpty()) { synchronized(srcByDate) { srcByDate[date] = "gelang" }; return band }
+        synchronized(srcByDate) { srcByDate[date] = "jam" }
+        return hc.values.flatten().sortedBy { it.startMs }
     }
 
-    private suspend fun sleepHc(ctx: Context, date: LocalDate): List<Ycbt.SleepSeg> {
-        if (BuildConfig.BAND_ONLY || !granted(ctx)) return emptyList()   // Lige Pantau: tanpa data jam
+    /** tidur dari wearable di Health Connect, dikelompokkan per aplikasi sumber */
+    private suspend fun sleepHc(ctx: Context, date: LocalDate): Map<String, List<Ycbt.SleepSeg>> {
+        if (!granted(ctx)) return emptyMap()
         val c = HealthConnectClient.getOrCreate(ctx)
         val zone = ZoneId.systemDefault()
         val sFrom = date.minusDays(1).atStartOfDay(zone).plusHours(18).toInstant()
         val sTo = date.atStartOfDay(zone).plusHours(14).toInstant()
-        val sleep = ArrayList<Ycbt.SleepSeg>()
+        val bySrc = HashMap<String, ArrayList<Ycbt.SleepSeg>>()
         for (s in readAll(c, SleepSessionRecord::class, sFrom, sTo)) {
+            val pkg = s.metadata.dataOrigin.packageName
+            if (!HcSteps.isWearable(pkg)) continue
+            val sleep = bySrc.getOrPut(pkg) { ArrayList() }
             if (s.stages.isEmpty()) {
                 sleep += Ycbt.SleepSeg(s.startTime.toEpochMilli(),
                     ((s.endTime.toEpochMilli() - s.startTime.toEpochMilli()) / 1000).toInt(), 2)
@@ -117,14 +133,15 @@ object WatchData {
                     ((st.endTime.toEpochMilli() - st.startTime.toEpochMilli()) / 1000).toInt(), stage)
             }
         }
-        sleep.sortBy { it.startMs }
-        return sleep
+        bySrc.values.forEach { l -> l.sortBy { it.startMs } }
+        return bySrc
     }
 
     suspend fun spo2(ctx: Context, from: Long, to: Long): List<Ycbt.Vital> {
-        if (BuildConfig.BAND_ONLY || !granted(ctx)) return emptyList()   // Lige Pantau: tanpa data jam
+        if (!granted(ctx)) return emptyList()
         val c = HealthConnectClient.getOrCreate(ctx)
         return readAll(c, OxygenSaturationRecord::class, Instant.ofEpochMilli(from), Instant.ofEpochMilli(to))
+            .filter { HcSteps.isWearable(it.metadata.dataOrigin.packageName) }
             .map { Ycbt.Vital(it.time.toEpochMilli(), "spo2", it.percentage.value.toInt()) }
             .filter { it.v1 in 70..100 }.sortedBy { it.tsMs }
     }

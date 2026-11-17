@@ -216,7 +216,7 @@ class DetailActivity : AppCompatActivity() {
                     ring = r.ring; phone = r.phoneBest; watch = r.watch; band = r.band
                     nowHour = if (date == LocalDate.now()) java.time.LocalTime.now().hour else -1
                 })
-                chartBox.addView(legendRow(listOf(pal.ring to "Cincin", pal.phone to "HP", pal.awake to "Jam", pal.band to "Gelang")
+                chartBox.addView(legendRow(listOf(pal.ring to "Cincin", pal.phone to "HP", pal.awake to "Fitbit", pal.band to "Gelang")
                     .filter { RingBridge.hasRing(this@DetailActivity) || it.second != "Cincin" }))
                 for (h in 23 downTo 0) if (r.fused[h] >= 0.5) listRow("%02d:00".format(h), fmtN(r.fused[h]) + " langkah", null)
             }
@@ -236,7 +236,7 @@ class DetailActivity : AppCompatActivity() {
                 sub.text = if (all.isEmpty()) "belum ada data" else
                     "rata² · ${all.minOf { it.hr }}–${all.maxOf { it.hr }} · terakhir ${all.last().hr} (${tf.format(Date(all.last().tsMs))})"
                 chartBox.addView(HeartView(this, pal).apply { pts = d.heartRing; watch = d.heartWatch; band = d.heartBand; dayStart = ds; hOverride = 160f })
-                chartBox.addView(legendRow(listOf(pal.ring to "Cincin", pal.band to "Gelang", pal.heart to "Jam")
+                chartBox.addView(legendRow(listOf(pal.ring to "Cincin", pal.band to "Gelang", pal.heart to "Fitbit")
                     .filter { RingBridge.hasRing(this@DetailActivity) || it.second != "Cincin" }))
             }
             Metric.EXERCISE -> {

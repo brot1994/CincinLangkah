@@ -73,7 +73,7 @@ object Daily {
         if (m == Metric.EXERCISE || m == Metric.KCAL) safe { wSess = WatchData.sessions(ctx, from, to) }
 
         fun asleep(l: List<Ycbt.SleepSeg>) = l.filter { it.stage in 1..3 }.sumOf { it.durSec }
-        val useW = asleep(wSleep) > asleep(rep.sleep)
+        val useW = asleep(wSleep) > 0
         val vit = when (m) {
             Metric.SPO2 -> (rep.spo2 + wSpo2).sortedBy { it.tsMs }
             Metric.BP -> (rep.bp + withContext(Dispatchers.IO) {
@@ -113,7 +113,7 @@ object Daily {
                 var w = emptyList<Ycbt.SleepSeg>()
                 safe { w = WatchData.sleep(ctx, d) }
                 fun asleep(l: List<Ycbt.SleepSeg>) = l.filter { it.stage in 1..3 }.sumOf { it.durSec } / 60.0
-                val segs = if (asleep(w) > asleep(ring)) w else ring
+                val segs = if (asleep(w) > 0) w else ring
                 val tot = asleep(segs)
                 DayVal(d, tot.takeIf { it > 0 }, v2 = segs.filter { it.stage == 1 }.sumOf { it.durSec } / 60.0)
             }
