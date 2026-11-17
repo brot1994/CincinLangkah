@@ -29,8 +29,19 @@ object BpCal {
 
     class Line(val a: Double, val b: Double) { fun at(x: Double) = a + b * x }
     class Model(val n: Int, val sys: Line, val dia: Line, val maeSys: Double, val maeDia: Double,
-                val maeMeanSys: Double, val ringMae: Double?, val ringN: Int) {
+                val maeMeanSys: Double, val ringMae: Double?, val ringN: Int,
+                val hrMin: Double, val hrMax: Double, val sysMean: Double, val diaMean: Double,
+                val sysLo: Int, val sysHi: Int, val diaLo: Int, val diaHi: Int) {
         val ok get() = n >= MIN_PAIRS && maeSys <= MAX_MAE
+        /** detak benar-benar membantu menebak tensi? kalau tidak, pakai rata-rata manset saja */
+        val hrHelps get() = maeSys < maeMeanSys - 0.5
+        /** perkiraan: detak dibatasi ke rentang saat kalibrasi (tidak menebak di luar data),
+         *  hasil dibatasi ke rentang manset yang pernah terukur */
+        fun est(hr: Double): kotlin.Pair<Int, Int> {
+            if (!hrHelps) return sysMean.roundToInt() to diaMean.roundToInt()
+            val x = hr.coerceIn(hrMin, hrMax)
+            return sys.at(x).roundToInt().coerceIn(sysLo, sysHi) to dia.at(x).roundToInt().coerceIn(diaLo, diaHi)
+        }
     }
 
     private fun p(ctx: Context) = ctx.getSharedPreferences("bpcal", Context.MODE_PRIVATE)
@@ -81,7 +92,9 @@ object BpCal {
         if (l.size < 3) return null
         val x = l.map { it.hr!!.toDouble() }
         val ys = l.map { it.sys.toDouble() }; val yd = l.map { it.dia.toDouble() }
-        return Model(l.size, fit(x, ys), fit(x, yd), loo(x, ys), loo(x, yd), looMean(ys), ringMae, rp.size)
+        return Model(l.size, fit(x, ys), fit(x, yd), loo(x, ys), loo(x, yd), looMean(ys), ringMae, rp.size,
+            x.min(), x.max(), ys.average(), yd.average(),
+            l.minOf { it.sys }, l.maxOf { it.sys }, l.minOf { it.dia }, l.maxOf { it.dia })
     }
 
     /** perkiraan tensi per jam dari detak gelang (hanya kalau rumusnya layak) */
@@ -91,8 +104,8 @@ object BpCal {
         val z = ZoneId.systemDefault()
         return hr.groupBy { Instant.ofEpochMilli(it.tsMs).atZone(z).withMinute(0).withSecond(0).withNano(0).toInstant().toEpochMilli() }
             .map { (h, l) ->
-                val x = l.map { it.hr }.average()
-                Ycbt.Vital(h + 1_800_000L, "bpest", m.sys.at(x).roundToInt(), m.dia.at(x).roundToInt())
+                val (s, d) = m.est(l.map { it.hr }.average())
+                Ycbt.Vital(h + 1_800_000L, "bpest", s, d)
             }.sortedBy { it.tsMs }
     }
 }

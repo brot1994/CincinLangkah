@@ -668,6 +668,7 @@ class MainActivity : AppCompatActivity() {
             }
             mc.addView(r1); mc.addView(r2.apply { setPadding(0, px(6), 0, 0) }); mc.addView(res.apply { setPadding(0, px(10), 0, 0) })
             calStatus = note(""); mc.addView(calStatus); updateCalStatus()
+            calStatus?.setOnClickListener { showCalData() }
             mc.addView(note("Butuh 30–45 detik. Duduk diam, gelang pas di atas tulang pergelangan. Tensi & SpO₂ dari gelang hanya perkiraan, " +
                 "bukan pengganti tensimeter."))
         }
@@ -911,11 +912,35 @@ class MainActivity : AppCompatActivity() {
                 append(" · rumus meleset rata² ±%.0f/%.0f mmHg".format(m.maeSys, m.maeDia))
                 append(" (tanpa rumus, cukup pakai rata-rata: ±%.0f)".format(m.maeMeanSys))
                 if (m.ringMae != null) append("\n💍 Cincin vs manset: meleset rata² ±%.0f mmHg (${m.ringN} data)".format(m.ringMae))
-                append(if (m.ok) "\n✅ Rumus dipakai: tensi perkiraan per jam muncul di detail Tensi (tanda ≈)."
+                append(if (m.ok) "\n✅ Perkiraan dipakai (${if (m.hrHelps) "rumus detak" else "rata-rata manset"}): tensi perkiraan per jam muncul di detail Tensi (tanda ≈)."
                     else if (n >= BpCal.MIN_PAIRS) "\n⚠ Melesetnya masih > ${BpCal.MAX_MAE.toInt()} mmHg — tambah data di kondisi berbeda."
                     else "")
             }
+            append("\n(ketuk untuk lihat data)")
         }
+    }
+
+    /** daftar data kalibrasi + rumus yang dipakai */
+    private fun showCalData() {
+        val l = BpCal.pairs(this)
+        val m = BpCal.model(this)
+        val f = java.text.SimpleDateFormat("dd/MM HH:mm", java.util.Locale.getDefault())
+        val msg = buildString {
+            if (m != null) {
+                append("Rata-rata manset: %.0f/%.0f (rentang %d–%d / %d–%d)\n".format(m.sysMean, m.diaMean, m.sysLo, m.sysHi, m.diaLo, m.diaHi))
+                append("Detak saat kalibrasi: %.0f–%.0f bpm\n".format(m.hrMin, m.hrMax))
+                if (m.hrHelps) append("Rumus: SYS = %.0f %+.2f×detak, DIA = %.0f %+.2f×detak\n".format(m.sys.a, m.sys.b, m.dia.a, m.dia.b))
+                else append("Detak tidak membantu menebak tensi Om (rumus tidak lebih baik dari rata-rata), jadi perkiraan = rata-rata manset.\n")
+                append("\n")
+            }
+            for (p in l.reversed()) append("${f.format(java.util.Date(p.ts))}  ${p.sys}/${p.dia}  ❤${p.hr ?: "-"}" +
+                (p.ringSys?.let { "  💍$it/${p.ringDia}" } ?: "") + "\n")
+            if (l.isEmpty()) append("Belum ada data.")
+        }
+        androidx.appcompat.app.AlertDialog.Builder(this).setTitle("🩺 Data kalibrasi tensi").setMessage(msg)
+            .setPositiveButton("Tutup", null)
+            .setNegativeButton("Hapus data terakhir") { _, _ -> BpCal.removeLast(this); updateCalStatus() }
+            .show()
     }
 
     private fun bpCalibrate(res: TextView, btns: List<Button>) {
