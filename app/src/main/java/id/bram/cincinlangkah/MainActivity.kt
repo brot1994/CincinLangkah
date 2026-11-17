@@ -137,6 +137,7 @@ class MainActivity : AppCompatActivity() {
         AppLog.init(this)
         if (BuildConfig.BAND_ONLY) {
             if (prefs.getString("band_addr", null) == null) prefs.edit().putString("band_addr", "31:37:46:32:57:02").apply()
+            if (!prefs.getBoolean("ring_addr_set", false)) prefs.edit().putString("addr", "EA:CE:44:64:06:9B").putBoolean("ring_addr_set", true).apply()
         } else if (prefs.getString("addr", null) == null) prefs.edit().putString("addr", "EA:CE:44:64:06:9B").apply()
         buildUi()
         AppLog.listener = { line -> appendLog(line) }
@@ -178,14 +179,15 @@ class MainActivity : AppCompatActivity() {
     private fun doSync() {
         if (BuildConfig.BAND_ONLY) {
             if (!hasBtPerms()) { pendingSync = { doSync() }; basePerms.launch(btPermList()); return }
-            if (Band.running) { toast("Sinkron gelang sedang berjalan"); return }
-            syncBtn.text = "…"; status.text = "Menyambung ke gelang…"
+            if (Band.running || SyncWorker.running) { toast("Sinkron sedang berjalan, tunggu sebentar"); return }
+            syncBtn.text = "…"
+            status.text = if (prefs.getString("addr", null).isNullOrBlank()) "Menyambung ke gelang…" else "Sinkron cincin lalu gelang…"
             lifecycleScope.launch {
                 PhoneSteps.sample(this@MainActivity, "sebelum sinkron")
-                val ok = try { Band.sync(this@MainActivity) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { false }
+                val ok = try { runRing(this@MainActivity, 0, "⟳ Sinkron manual") } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { false }
                 syncBtn.text = "⟳"
                 if (ok) prefs.edit().putLong("last_sync", System.currentTimeMillis()).apply()
-                updateStatus(if (ok) null else "✖ gelang tidak tersambung")
+                updateStatus(if (ok) null else "✖ cincin/gelang tidak tersambung")
                 refresh()
             }
             return
@@ -746,6 +748,14 @@ class MainActivity : AppCompatActivity() {
             if (!has) prefs.edit().putString("band_addr", addr.text.toString().trim().uppercase()).apply()
         }
         c7.addView(addr)
+        if (BuildConfig.BAND_ONLY) {
+            c7.addView(note("Alamat Bluetooth cincin (kosongkan kalau tidak mau sinkron cincin langsung dari Lige Pantau)"))
+            val ra = edit(prefs.getString("addr", "") ?: "", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS)
+            ra.setOnFocusChangeListener { _, has -> if (!has) prefs.edit().putString("addr", ra.text.toString().trim().uppercase()).apply() }
+            c7.addView(ra)
+            c7.addView(note(if (RingBridge.cincinInstalled(this)) "Cincin Langkah terpasang: Lige Pantau membaca cincin tanpa menghapus riwayatnya, jadi data tetap masuk ke dua aplikasi."
+                else "Cincin Langkah tidak terpasang: Lige Pantau yang mengurus cincin sepenuhnya (riwayat di cincin dibersihkan setelah tersimpan)."))
+        }
         c7.addView(note("Berat badan (kg) — untuk perkiraan kalori olahraga (otomatis dari catatan berat program)"))
         val berat = edit(prefs.getInt("berat", 70).toString(), InputType.TYPE_CLASS_NUMBER)
         berat.setOnFocusChangeListener { _, has ->

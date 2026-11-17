@@ -17,6 +17,9 @@ object RingBridge {
     val TABLES = linkedMapOf("sleep_seg" to "start", "heart" to "ts", "vital" to "ts", "ring_sport" to "start", "ring_all" to "ts")
     @Volatile private var lastAt = 0L
 
+    /** apakah aplikasi Cincin Langkah (penyedia data) terpasang */
+    fun cincinInstalled(ctx: Context) = try { ctx.packageManager.resolveContentProvider(AUTH, 0) != null } catch (_: Exception) { false }
+
     fun hasRing(ctx: Context) = !BuildConfig.BAND_ONLY ||
         ctx.getSharedPreferences("cfg", Context.MODE_PRIVATE).getBoolean("has_ring", false)
 
@@ -27,7 +30,7 @@ object RingBridge {
         if (!force && now - lastAt < 5 * 60_000L) return 0
         lastAt = now
         val p = ctx.getSharedPreferences("cfg", Context.MODE_PRIVATE)
-        val first = !p.getBoolean("has_ring", false)
+        val first = !p.getBoolean("bridge_done", false)
         val from = now - (if (first) 45L else 3L) * 86_400_000L
         val db = Db.get(ctx).writableDatabase
         var n = 0
@@ -55,7 +58,7 @@ object RingBridge {
             val once = !p.getBoolean("coach_reset_1", false)
             if (once) p.edit().putBoolean("coach_reset_1", true).apply()
             if (n > 0 || once) {
-                if (n > 0 || p.getBoolean("has_ring", false)) p.edit().putBoolean("has_ring", true).apply()
+                if (n > 0 || p.getBoolean("has_ring", false)) p.edit().putBoolean("has_ring", true).putBoolean("bridge_done", true).apply()
                 // ringkasan malam yang tersimpan (Pelatih) dihitung ulang dengan data cincin yang baru
                 val cp = ctx.getSharedPreferences("coach", Context.MODE_PRIVATE)
                 cp.edit().apply { cp.all.keys.filter { it.startsWith("n_") }.forEach { remove(it) } }.apply()

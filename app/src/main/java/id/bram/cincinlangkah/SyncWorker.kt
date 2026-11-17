@@ -50,15 +50,20 @@ suspend fun runRing(ctx: Context, liveHrSec: Int, why: String): Boolean {
         ContextCompat.checkSelfPermission(ctx, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED
     ) return false
     if (SyncWorker.running) return false
+    val cfg = ctx.getSharedPreferences("cfg", Context.MODE_PRIVATE)
     if (BuildConfig.BAND_ONLY) {
-        // Lige Pantau: gelang + data cincin dari Cincin Langkah
-        AppLog.d(why)
+        // Lige Pantau: data cincin dari Cincin Langkah (kalau terpasang) + sinkron cincin langsung + gelang
         try { RingBridge.import(ctx, force = true) } catch (_: Exception) {}
-        val r = try { Band.sync(ctx) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { AppLog.d("⌚ Gelang error: ${e.message}"); false }
-        if (liveHrSec == 0) try { Band.autoBp(ctx) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) {}
-        return r
+        // Riwayat di cincin hanya dihapus kalau Cincin Langkah tidak terpasang,
+        // supaya Cincin Langkah tetap kebagian data yang sama.
+        cfg.edit().putBoolean("hapus_di_cincin", !RingBridge.cincinInstalled(ctx)).apply()
+        if (cfg.getString("addr", null).isNullOrBlank()) {
+            AppLog.d(why)
+            val r = try { Band.sync(ctx) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { AppLog.d("⌚ Gelang error: ${e.message}"); false }
+            return r
+        }
     }
-    val addr = ctx.getSharedPreferences("cfg", Context.MODE_PRIVATE).getString("addr", null)
+    val addr = cfg.getString("addr", null)
     if (addr.isNullOrBlank()) return false
 
     AppLog.d(why)
@@ -75,7 +80,8 @@ suspend fun runRing(ctx: Context, liveHrSec: Int, why: String): Boolean {
         }
     } } finally { SyncWorker.running = false }
     if (ok == null) main.post { client?.cancel() }
-    try { Band.sync(ctx) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { AppLog.d("⌚ Gelang error: ${e.message}") }
+    if (ok == true && BuildConfig.BAND_ONLY) cfg.edit().putBoolean("has_ring", true).apply()
+    val bandOk = try { Band.sync(ctx) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { AppLog.d("⌚ Gelang error: ${e.message}"); false }
     if (liveHrSec == 0) try { Band.autoBp(ctx) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) {}
-    return ok == true
+    return ok == true || (BuildConfig.BAND_ONLY && bandOk)
 }
