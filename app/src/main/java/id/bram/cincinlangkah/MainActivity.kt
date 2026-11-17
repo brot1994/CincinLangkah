@@ -181,6 +181,7 @@ class MainActivity : AppCompatActivity() {
             if (!hasBtPerms()) { pendingSync = { doSync() }; basePerms.launch(btPermList()); return }
             if (Band.running || SyncWorker.running) { toast("Sinkron sedang berjalan, tunggu sebentar"); return }
             syncBtn.text = "…"
+            try { BpCal.logAll(this) } catch (_: Exception) {}
             status.text = if (prefs.getString("addr", null).isNullOrBlank()) "Menyambung ke gelang…" else "Sinkron cincin lalu gelang…"
             lifecycleScope.launch {
                 PhoneSteps.sample(this@MainActivity, "sebelum sinkron")

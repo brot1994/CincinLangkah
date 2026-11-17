@@ -64,6 +64,21 @@ object BpCal {
             .minByOrNull { abs(it.tsMs - now) }
         save(ctx, pairs(ctx) + Pair(now, sys, dia, hr, rmssd, ring?.v1, ring?.v2))
         db.putVitals(listOf(Ycbt.Vital(now, "bpcuff", sys, dia)))
+        logAll(ctx)
+    }
+
+    /** tulis semua data kalibrasi + rumus ke log (untuk cadangan / dicek) */
+    fun logAll(ctx: Context) {
+        val l = pairs(ctx); if (l.isEmpty()) return
+        val f = java.text.SimpleDateFormat("dd/MM HH:mm", java.util.Locale.getDefault())
+        AppLog.d("🩺 Data kalibrasi tensi (${l.size}):")
+        for (p in l) AppLog.d("🩺 ${f.format(java.util.Date(p.ts))} manset ${p.sys}/${p.dia} ❤${p.hr ?: "-"} hrv ${p.rmssd ?: "-"}" +
+            (p.ringSys?.let { " 💍$it/${p.ringDia}" } ?: ""))
+        model(ctx)?.let { m ->
+            AppLog.d("🩺 rata² %.0f/%.0f, detak %.0f–%.0f, rumus SYS=%.1f%+.2f×detak DIA=%.1f%+.2f×detak, meleset ±%.1f/%.1f (rata² saja ±%.1f), %s".format(
+                m.sysMean, m.diaMean, m.hrMin, m.hrMax, m.sys.a, m.sys.b, m.dia.a, m.dia.b, m.maeSys, m.maeDia, m.maeMeanSys,
+                if (m.hrHelps) "pakai rumus detak" else "pakai rata-rata"))
+        }
     }
 
     fun removeLast(ctx: Context) { val l = pairs(ctx); if (l.isNotEmpty()) save(ctx, l.dropLast(1)) }
