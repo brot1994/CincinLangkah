@@ -382,6 +382,7 @@ object Band {
             bpDay = null
         }
         val stepDay = java.util.TreeMap<LocalDate, Int>()
+        val stepSlot = HashMap<Long, Int>()
         var unknown = 0
         var vitInt = 30
 
@@ -404,7 +405,9 @@ object Band {
                     val kcal = u8(v, 7) or (u8(v, 8) shl 8)
                     val dist = u8(v, 11) or (u8(v, 12) shl 8)
                     db.putBandSteps(ts, steps, kcal, dist); nSteps++
-                    stepDay[date] = (stepDay[date] ?: 0) + steps
+                    stepSlot[ts] = steps   // paket bisa terkirim dua kali → hitung per slot, bukan dijumlah
+                    stepDay[date] = stepSlot.filterKeys { it >= date.atStartOfDay(zone).toInstant().toEpochMilli() &&
+                        it < date.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli() }.values.sum()
                 }
                 0x15 -> {
                     val sub = u8(v, 1)
