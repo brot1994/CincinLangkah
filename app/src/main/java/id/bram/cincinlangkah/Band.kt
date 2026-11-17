@@ -331,6 +331,11 @@ object Band {
                 bcd(cal.get(Calendar.HOUR_OF_DAY)), bcd(cal.get(Calendar.MINUTE)), bcd(cal.get(Calendar.SECOND)), 1))
             pause(600)
             send(SVC, WR, packet(0x03)); pause(800)
+            // pastikan pengukuran otomatis di gelang menyala (detak tiap 5 mnt, SpO2, stres, HRV);
+            // setelan ini bisa mati sendiri kalau baterai gelang sempat habis.
+            for (c in listOf(0x16, 0x2c, 0x36, 0x38)) { send(SVC, WR, packet(c, 1)); pause(300) }
+            send(SVC, WR, packet(0x16, 2, 1, 5)); pause(300)
+            for (c in listOf(0x2c, 0x36, 0x38)) { send(SVC, WR, packet(c, 2, 1)); pause(300) }
             for (d in 0..2) { send(SVC, WR, packet(0x43, d, 0x0f, 0x00, 0x5f, 0x01)); settle(1500) }
             // kemarin dulu, lalu hari ini; tunggu sampai semua paket masuk (hari ini bisa >20 paket)
             for (d in 1 downTo 0) {

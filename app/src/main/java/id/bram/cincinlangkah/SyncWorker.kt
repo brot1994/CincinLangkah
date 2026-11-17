@@ -23,6 +23,8 @@ class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
     companion object {
         /** Satu sinkron dalam satu waktu (manual atau otomatis). */
         @Volatile var running = false
+        /** satu runRing() sedang jalan */
+        @Volatile var busy = false
 
         fun schedule(ctx: Context) {
             val req = PeriodicWorkRequestBuilder<SyncWorker>(1, TimeUnit.HOURS, 15, TimeUnit.MINUTES).build()
@@ -49,7 +51,12 @@ suspend fun runRing(ctx: Context, liveHrSec: Int, why: String): Boolean {
     if (Build.VERSION.SDK_INT >= 31 &&
         ContextCompat.checkSelfPermission(ctx, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED
     ) return false
-    if (SyncWorker.running) return false
+    // cegah dua sinkron jalan bersamaan (mis. sinkron tiap jam + cek olahraga di detik yang sama)
+    synchronized(SyncWorker) { if (SyncWorker.running || SyncWorker.busy) return false; SyncWorker.busy = true }
+    try { return runRingInner(ctx, liveHrSec, why) } finally { SyncWorker.busy = false }
+}
+
+private suspend fun runRingInner(ctx: Context, liveHrSec: Int, why: String): Boolean {
     val cfg = ctx.getSharedPreferences("cfg", Context.MODE_PRIVATE)
     if (BuildConfig.BAND_ONLY) {
         // Lige Pantau: data cincin dari Cincin Langkah (kalau terpasang) + sinkron cincin langsung + gelang
