@@ -346,7 +346,7 @@ class MainActivity : AppCompatActivity() {
         sleepLegend.text = if (segs.isEmpty()) ""
         else colorDots("● Nyenyak ${hm(stageMin(1))}   ● Ringan ${hm(stageMin(2))}   ● REM ${hm(stageMin(3))}   ● Terjaga ${hm(stageMin(4))}" +
             "\nSumber: " + sSrc +
-            (if (wSleep.isNotEmpty() && day.sleep.isNotEmpty()) " (${WatchData.sleepSrc(day.date)} ${hm(asleep(wSleep))} · cincin ${hm(asleep(day.sleep))})" else "", listOf(pal.stage(1), pal.stage(2), pal.stage(3), pal.stage(4)))
+            (if (wSleep.isNotEmpty() && day.sleep.isNotEmpty()) " (${WatchData.sleepSrc(day.date)} ${hm(asleep(wSleep))} · cincin ${hm(asleep(day.sleep))})" else ""), listOf(pal.stage(1), pal.stage(2), pal.stage(3), pal.stage(4)))
 
         // detak jantung: titik = cincin, garis = jam
         val wHr = watch?.heart ?: emptyList()
