@@ -227,6 +227,10 @@ class DetailActivity : AppCompatActivity() {
                     else "${tf.format(Date(d.sleep.first().startMs))} – ${tf.format(Date(d.sleep.maxOf { it.startMs + it.durSec * 1000L }))}" +
                         "  ·  " + (if (d.sleepFromWatch) "dari ${WatchData.sleepSrc(date)} ⌚" else "dari cincin 💍")
                 chartBox.addView(SleepView(this, pal).apply { segs = d.sleep })
+                if (d.sleep.isNotEmpty()) chartBox.addView(TextView(this).apply {
+                    text = colorDots("● Nyenyak   ● Ringan   ● REM   ● Terjaga", (1..4).map { pal.stage(it) })
+                    textSize = 12.5f; setTextColor(pal.muted); setPadding(0, px(4), 0, 0)
+                })
                 fun m(st: Int) = d.sleep.filter { it.stage == st }.sumOf { it.durSec } / 60
                 if (d.sleep.isNotEmpty()) sleepStats(d.sleep, asleep.roundToInt(), m(1), m(2), m(3), m(4))
             }
@@ -320,7 +324,14 @@ class DetailActivity : AppCompatActivity() {
                     orientation = LinearLayout.VERTICAL; setPadding(px(14), px(10), px(12), px(12))
                     background = GradientDrawable().apply { cornerRadius = px(16).toFloat(); setColor(pal.card) }
                 }
-                box.addView(TextView(this).apply { text = it[0] as String; textSize = 13.5f; setTextColor(pal.fg) })
+                val tint = it.getOrNull(5) as Int?
+                if (tint != null) box.background = GradientDrawable().apply {
+                    cornerRadius = px(16).toFloat(); setColor(pal.card); setStroke(px(2), tint)
+                }
+                box.addView(TextView(this).apply {
+                    text = if (tint != null) colorDots(it[0] as String, listOf(tint)) else it[0] as String
+                    textSize = 13.5f; setTextColor(pal.fg)
+                })
                 (it[1] as String?)?.let { r -> box.addView(TextView(this).apply { text = r; textSize = 11f; setTextColor(pal.muted) }) }
                 val line = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, px(6), 0, 0) }
                 line.addView(TextView(this).apply {
@@ -371,10 +382,10 @@ class DetailActivity : AppCompatActivity() {
             arrayOf<Any?>("Kontinuitas nyenyak", "Rujukan 70–100", "$cont", st(cont >= 70, true), sc(cont >= 70)),
             arrayOf<Any?>("Porsi nyenyak", "Rujukan 20–60%", "$pDeep%", st(pDeep in 20..60, pDeep < 20), sc(pDeep in 20..60)),
             arrayOf<Any?>("Porsi ringan", "Rujukan ±50%", "$pLight%", st(pLight <= 60, false), sc(pLight <= 60)),
-            arrayOf<Any?>("● Nyenyak", null, hm(deep), null, null),
-            arrayOf<Any?>("● Ringan", null, hm(light), null, null),
-            arrayOf<Any?>("● REM", null, hm(rem), null, null),
-            arrayOf<Any?>("● Terjaga", "$wakeups× terbangun", hm(awake), null, null),
+            arrayOf<Any?>("● Nyenyak", null, hm(deep), null, null, pal.stage(1)),
+            arrayOf<Any?>("● Ringan", null, hm(light), null, null, pal.stage(2)),
+            arrayOf<Any?>("● REM", null, hm(rem), null, null, pal.stage(3)),
+            arrayOf<Any?>("● Terjaga", "$wakeups× terbangun", hm(awake), null, null, pal.stage(4)),
             arrayOf<Any?>("❤ Detak saat tidur", if (hr.isEmpty()) null else "${hr.min()}–${hr.max()} bpm", if (hr.isEmpty()) "–" else "${hr.average().roundToInt()} bpm", null, null),
         ))
         listBox.addView(TextView(this).apply {

@@ -173,6 +173,19 @@ class HourBarsView(ctx: Context, pal: Pal) : BaseChart(ctx, pal) {
 }
 
 /** Garis waktu tidur per tahap. */
+/** warnai tiap "●" berurutan dengan warna yang diberikan (legenda) */
+fun colorDots(s: String, colors: List<Int>): CharSequence {
+    val sp = android.text.SpannableString(s)
+    var i = 0; var k = 0
+    while (k < colors.size) {
+        i = s.indexOf('●', i); if (i < 0) break
+        sp.setSpan(android.text.style.ForegroundColorSpan(colors[k]), i, i + 1, 0)
+        sp.setSpan(android.text.style.RelativeSizeSpan(1.3f), i, i + 1, 0)
+        i++; k++
+    }
+    return sp
+}
+
 class SleepView(ctx: Context, pal: Pal) : BaseChart(ctx, pal) {
     override val hDp = 74f
     var segs: List<Ycbt.SleepSeg> = emptyList()
