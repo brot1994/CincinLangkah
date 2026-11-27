@@ -83,6 +83,7 @@ object Wave {
         val ops = ArrayDeque<Op>()
         var busy = false
         var ended = false
+        var stopping = false
         var started = false
         var phase = 0
         val pkts = ArrayList<Pkt>()
@@ -180,7 +181,7 @@ object Wave {
 
         @Suppress("DEPRECATION")
         fun pump() {
-            if (busy || ended) return
+            if (busy || (ended && !stopping)) return
             val g = gatt ?: return
             val op = ops.removeFirstOrNull() ?: return
             when (op) {
@@ -230,24 +231,21 @@ object Wave {
             ended = true
             log("selesai ($why): ${pkts.size} paket")
             try {
-                // matikan semua yang mungkin masih menyala
+                // matikan semua yang mungkin masih menyala (2× supaya pasti), satu per satu setelah tulisan sebelumnya selesai
                 val g = gatt
                 if (g != null && started) {
+                    val (s, ch) = if (ring) Ycbt.SERVICE to Ycbt.CHAR_CMD else ProbeActivity.QC_SVC to ProbeActivity.QC_WRITE
                     val list = if (ring) listOf(
                         Ycbt.frame(Ycbt.G_APPCTRL, 0x2F, byteArrayOf(0, 0)), Ycbt.frame(Ycbt.G_APPCTRL, 0x2F, byteArrayOf(0, 1)),
                         Ycbt.frame(Ycbt.G_APPCTRL, 0x0B, byteArrayOf(0, 0)), Ycbt.frame(Ycbt.G_APPCTRL, 0x09, byteArrayOf(0, 4, 2)))
-                    else listOf(qc(0x6a, 1, 0, 0), qc(0xa1, 0x02))
-                    val (s, ch) = if (ring) Ycbt.SERVICE to Ycbt.CHAR_CMD else ProbeActivity.QC_SVC to ProbeActivity.QC_WRITE
-                    val c = g.getService(s)?.getCharacteristic(ch)
-                    list.forEachIndexed { i, d ->
-                        main.postDelayed({
-                            @Suppress("DEPRECATION")
-                            try { if (c != null) { c.value = d; c.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT; g.writeCharacteristic(c) } } catch (_: Exception) {}
-                        }, i * 150L)
-                    }
+                    else listOf(qc(0x6a, 1, 0, 0), qc(0xa1, 0x02), qc(0x6a, 1, 0, 0), qc(0xa1, 0x02))
+                    ops.clear(); busy = false
+                    for (d in list) ops.addLast(Op.Write(s, ch, d, "matikan"))
+                    stopping = true
+                    pump()
                 }
             } catch (_: Exception) {}
-            main.postDelayed({ try { gatt?.disconnect(); gatt?.close() } catch (_: Exception) {} }, 900)
+            main.postDelayed({ try { gatt?.disconnect(); gatt?.close() } catch (_: Exception) {} }, 3000)
             onDone(analyze())
         }
 

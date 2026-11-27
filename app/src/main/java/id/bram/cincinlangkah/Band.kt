@@ -331,6 +331,9 @@ object Band {
                 bcd(cal.get(Calendar.HOUR_OF_DAY)), bcd(cal.get(Calendar.MINUTE)), bcd(cal.get(Calendar.SECOND)), 1))
             pause(600)
             send(SVC, WR, packet(0x03)); pause(800)
+            // pastikan mode sensor mentah (uji gelombang) & ukur manual mati, supaya lampu sensor tidak menyala terus
+            send(SVC, WR, packet(0xa1, 0x02)); pause(300)
+            for (k in listOf(1, 2, 3, 10)) { send(SVC, WR, packet(0x6a, k, 0, 0)); pause(200) }
             // pastikan pengukuran otomatis di gelang menyala (detak tiap 5 mnt, SpO2, stres, HRV);
             // setelan ini bisa mati sendiri kalau baterai gelang sempat habis.
             for (c in listOf(0x16, 0x2c, 0x36, 0x38)) { send(SVC, WR, packet(c, 1)); pause(300) }
