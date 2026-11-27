@@ -332,6 +332,8 @@ object Band {
             pause(600)
             send(SVC, WR, packet(0x03)); pause(800)
             // pastikan mode sensor mentah (uji gelombang) & ukur manual mati, supaya lampu sensor tidak menyala terus
+            // urutan matikan: a1 05 (hentikan aliran mentah) lalu a1 02 (matikan bit PPG mentah) → LED padam
+            send(SVC, WR, packet(0xa1, 0x05)); pause(300)
             send(SVC, WR, packet(0xa1, 0x02)); pause(300)
             for (k in listOf(1, 2, 3, 10)) { send(SVC, WR, packet(0x6a, k, 0, 0)); pause(200) }
             // pastikan pengukuran otomatis di gelang menyala (detak tiap 5 mnt, SpO2, stres, HRV);

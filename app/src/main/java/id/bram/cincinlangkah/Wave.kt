@@ -31,7 +31,7 @@ import kotlin.coroutines.resume
  *
  * Cincin (YCBT): AppControlReal 03 09 [on, tipe, 2] (tipe 4 = PPG), AppControlWave 03 0B [on, 0],
  *   AppStartMeasurement 03 2F [on, jenis] (0 detak, 1 tensi). Gelombang datang sebagai 06 04 (PPG) / 06 0F (multi-kanal).
- * Gelang (QC): a1 04 = nyalakan data sensor mentah, a1 02 = matikan. Paket a1 01 (SpO₂/merah), a1 02 (PPG), a1 03 (akselerometer).
+ * Gelang (QC): a1 04 = nyalakan data sensor mentah; matikan dengan a1 05 lalu a1 02 (kalau hanya a1 02, LED tetap menyala). Paket a1 01 (SpO₂/merah), a1 02 (PPG), a1 03 (akselerometer).
  */
 @SuppressLint("MissingPermission")
 object Wave {
@@ -175,7 +175,7 @@ object Wave {
                 w(qc(0x69, 1, 1), "mulai ukur detak")
             }
             for (t in 10 until sec / 2 step 10) later(half + t * 1000L) { w(qc(0x69, 1, 3), "perpanjang ukur") }
-            later(half * 2) { w(qc(0x6a, 1, 0, 0), "stop ukur"); w(qc(0xa1, 0x02), "sensor mentah OFF") }
+            later(half * 2) { w(qc(0x6a, 1, 0, 0), "stop ukur"); w(qc(0xa1, 0x05), "hentikan aliran mentah"); w(qc(0xa1, 0x02), "sensor mentah OFF") }
             later(half * 2 + 2000) { end("selesai") }
         }
 
@@ -238,7 +238,7 @@ object Wave {
                     val list = if (ring) listOf(
                         Ycbt.frame(Ycbt.G_APPCTRL, 0x2F, byteArrayOf(0, 0)), Ycbt.frame(Ycbt.G_APPCTRL, 0x2F, byteArrayOf(0, 1)),
                         Ycbt.frame(Ycbt.G_APPCTRL, 0x0B, byteArrayOf(0, 0)), Ycbt.frame(Ycbt.G_APPCTRL, 0x09, byteArrayOf(0, 4, 2)))
-                    else listOf(qc(0x6a, 1, 0, 0), qc(0xa1, 0x02), qc(0x6a, 1, 0, 0), qc(0xa1, 0x02))
+                    else listOf(qc(0x6a, 1, 0, 0), qc(0xa1, 0x05), qc(0xa1, 0x02), qc(0xa1, 0x05), qc(0xa1, 0x02))
                     ops.clear(); busy = false
                     for (d in list) ops.addLast(Op.Write(s, ch, d, "matikan"))
                     stopping = true
