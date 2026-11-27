@@ -670,6 +670,9 @@ class MainActivity : AppCompatActivity() {
             mc.addView(r1); mc.addView(r2.apply { setPadding(0, px(6), 0, 0) }); mc.addView(res.apply { setPadding(0, px(10), 0, 0) })
             calStatus = note(""); mc.addView(calStatus); updateCalStatus()
             calStatus?.setOnClickListener { showCalData() }
+            mc.addView(smallButton("🧪 Uji gelombang (eksperimen)") { waveTest(res, btns) }.apply {
+                layoutParams = LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { topMargin = px(8) }
+            })
             mc.addView(note("Butuh 30–45 detik. Duduk diam, gelang pas di atas tulang pergelangan. Tensi & SpO₂ dari gelang hanya perkiraan, " +
                 "bukan pengganti tensimeter."))
         }
@@ -966,6 +969,51 @@ class MainActivity : AppCompatActivity() {
             .setNegativeButton("Batal", null)
             .setNeutralButton("Hapus data terakhir") { _, _ -> BpCal.removeLast(this); updateCalStatus(); toast("Data kalibrasi terakhir dihapus") }
             .show()
+    }
+
+    /** EKSPERIMEN: rekam gelombang PPG mentah dari cincin / gelang, tampilkan grafik & bagikan datanya */
+    private fun waveTest(res: TextView, btns: List<Button>) {
+        val hasRing = !prefs.getString("addr", null).isNullOrBlank()
+        val hasBand = Band.addr(this) != null
+        val opts = ArrayList<Pair<String, Boolean>>()
+        if (hasRing) opts += "💍 Cincin" to true
+        if (hasBand) opts += "⌚ Gelang" to false
+        if (opts.isEmpty()) { toast("Belum ada cincin / gelang"); return }
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("🧪 Uji gelombang PPG")
+            .setMessage("Mencoba meminta bentuk gelombang denyut mentah (40 detik: 20 dtk mode detak + 20 dtk mode tensi/sensor).\n\n" +
+                "Duduk diam, tangan di atas meja, jangan bergerak. Pilih perangkat:")
+            .setPositiveButton(opts[0].first) { _, _ -> runWave(opts[0].second, res, btns) }
+            .apply { if (opts.size > 1) setNeutralButton(opts[1].first) { _, _ -> runWave(opts[1].second, res, btns) } }
+            .setNegativeButton("Batal", null)
+            .show()
+    }
+
+    private fun runWave(ring: Boolean, res: TextView, btns: List<Button>) {
+        if (Band.running || SyncWorker.running || SyncWorker.busy || Wave.running) { toast("Sedang sinkron, coba sebentar lagi"); return }
+        btns.forEach { it.isEnabled = false }
+        lifecycleScope.launch {
+            val r = try { Wave.record(this@MainActivity, ring, 40) { t -> res.text = t } }
+                catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { AppLog.d("🧪 error: ${e.message}"); null }
+            btns.forEach { it.isEnabled = true }
+            if (r == null) { res.text = "Uji gelombang gagal (perangkat tidak tersambung / sedang sinkron)"; return@launch }
+            res.text = "🧪 Uji gelombang ${r.dev}: ${r.pkts.size} paket"
+            val box = LinearLayout(this@MainActivity).apply { orientation = LinearLayout.VERTICAL; setPadding(px(16), px(8), px(16), 0) }
+            box.addView(TextView(this@MainActivity).apply { text = r.summary; textSize = 13f; setTextColor(pal.fg) })
+            if (r.series.isNotEmpty()) box.addView(WaveView(this@MainActivity, r.series, pal).apply { setPadding(0, px(8), 0, 0) })
+            androidx.appcompat.app.AlertDialog.Builder(this@MainActivity)
+                .setTitle("🧪 Hasil uji ${r.dev}")
+                .setView(ScrollView(this@MainActivity).apply { addView(box) })
+                .setPositiveButton("Bagikan data") { _, _ ->
+                    startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_SUBJECT, "Uji gelombang ${r.dev}")
+                        putExtra(Intent.EXTRA_TEXT, "# Uji gelombang ${r.dev}\n# " + r.summary.replace("\n", "\n# ") + "\n" + r.csv)
+                    }, "Bagikan data gelombang"))
+                }
+                .setNegativeButton("Tutup", null)
+                .show()
+        }
     }
 
     private fun askCuff(hr: Int?, rm: Int?, res: TextView) {

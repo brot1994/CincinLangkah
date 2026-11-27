@@ -52,7 +52,7 @@ suspend fun runRing(ctx: Context, liveHrSec: Int, why: String): Boolean {
         ContextCompat.checkSelfPermission(ctx, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED
     ) return false
     // cegah dua sinkron jalan bersamaan (mis. sinkron tiap jam + cek olahraga di detik yang sama)
-    synchronized(SyncWorker) { if (SyncWorker.running || SyncWorker.busy) return false; SyncWorker.busy = true }
+    synchronized(SyncWorker) { if (SyncWorker.running || SyncWorker.busy || Wave.running) return false; SyncWorker.busy = true }
     try { return runRingInner(ctx, liveHrSec, why) } finally { SyncWorker.busy = false }
 }
 
